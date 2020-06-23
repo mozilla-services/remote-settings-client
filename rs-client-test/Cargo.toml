@@ -1,5 +1,6 @@
 [package]
 name = "rs-client-test"
+# I would call it rs-client-demo.
 version = "0.1.0"
 authors = ["Vishwa Patel <vpatel@mozilla.com>"]
 edition = "2018"

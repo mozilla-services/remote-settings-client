@@ -55,6 +55,8 @@ pub struct Client {
     server_url: String,
     bucket_id: String,
     collection_name: String,
+    // for consistency, either we should bucket_name or collection_id
+    // (or bid/cid, or bucket/collection)
 }
 
 impl Default for Client {
@@ -66,10 +68,11 @@ impl Default for Client {
             collection_name: "".to_string()
         }
     }
-    
+
 }
 
 #[async_trait]
+// This should probably go to signatures.rs
 impl Verification for Client {
     async fn verify(collection: &Collection) -> Result<(), SignatureError> {
 
@@ -129,6 +132,8 @@ impl Client {
         return client
     }
 
+    // missing create_with_server_collection()
+
     pub async fn create_with_bucket_collection(bucket_id: &str, collection_name: &str) -> Self {
         println!("The bucket id is {}", bucket_id);
         println!("The collection name is {}", collection_name);
@@ -159,7 +164,14 @@ impl Client {
     }
 
     // For parameter expected, default value is 0
+    // Where is this default defined?
     pub async fn get(&self, expected: u64) -> Result<Collection, ClientError> {
+        // if expected is None or 0, we could fetch the latest value
+        // use the monitor/changes collection.
+        // get_record(&self.server_url, "monitor", "changes", expected=random for cache busting)
+        // and then lookup entries where bucket == self.bucket_id and collection == self.collection_name
+        // and use the `last_modified` as the `expected` value here.
+
         let changeset = get_changeset(
             &self.server_url,
             &self.bucket_id,
@@ -170,7 +182,6 @@ impl Client {
 
        println!("changeset.metadata {}", serde_json::to_string_pretty(&changeset.metadata)?);
 
-       // verify the signature
        let collection = Collection {
            bid: self.bucket_id.to_string(),
            cid: self.collection_name.to_string(),
