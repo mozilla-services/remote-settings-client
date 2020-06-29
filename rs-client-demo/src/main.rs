@@ -1,5 +1,6 @@
 use remote_settings_client::{Collection, Client, Verification, SignatureError};
 use async_trait::async_trait;
+use env_logger;
 
 struct CustomVerifier {}
 
@@ -12,6 +13,7 @@ impl Verification for CustomVerifier {
 
 #[tokio::main]
 async fn main() {
+    env_logger::init();
     println!("Fetching records using RS client with default Verifier");
 
     let client = Client::create_with_collection("url-classifier-skip-urls", None);

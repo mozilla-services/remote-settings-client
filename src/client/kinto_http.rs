@@ -2,6 +2,7 @@ use serde::Deserialize;
 use serde_json;
 use reqwest::Error as ReqwestError;
 use reqwest::header as header;
+use log::{debug, info};
 
 pub type KintoObject = serde_json::Value;
 
@@ -57,16 +58,16 @@ pub async fn get_records(
         "{}/buckets/{}/collections/{}/records?_expected={}",
         server, bid, cid, expected
     );
-    println!("Fetch {}...", url);
+    info!("Fetch {}...", url);
     let resp = reqwest::get(&url).await?;
     let timestamp = resp
         .headers()
         .get("etag").ok_or_else(|| KintoError::Error {name: "no ETag error".to_owned()})?;
 
-    println!("Timestamp : {:?}", timestamp);
+    debug!("Timestamp : {:?}", timestamp);
 
     let size = resp.headers().get("content-length").ok_or_else(|| -1);
-    println!("Download {:?} bytes...", size);
+    debug!("Download {:?} bytes...", size);
     let body = resp.text().await?;
     let result: ChangesetResponse = serde_json::from_str(&body)?;
 
@@ -83,7 +84,7 @@ pub async fn get_changeset(
         "{}/buckets/{}/collections/{}/changeset?_expected={}",
         server, bid, cid, expected
     );
-    println!("Fetch {}...", url);
+    info!("Fetch {}...", url);
     let resp = reqwest::get(&url).await?;
 
     let size: i64 = match resp.headers().get("content-length").ok_or_else(|| -1) {
@@ -92,7 +93,7 @@ pub async fn get_changeset(
             default
         }
     };
-    println!("Download {:?} bytes...", size);
+    debug!("Download {:?} bytes...", size);
 
     let body = resp.text().await?;
     let result: ChangesetResponse = serde_json::from_str(&body)?;

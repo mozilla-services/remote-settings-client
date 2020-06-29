@@ -1,6 +1,7 @@
 mod kinto_http;
 mod signatures;
 
+use log::{debug};
 use kinto_http::{get_changeset, KintoObject, KintoError};
 use signatures::{DefaultVerifier};
 pub use signatures::{SignatureError, Verification};
@@ -121,7 +122,7 @@ impl Client {
        )
        .await?;
 
-       println!("changeset.metadata {}", serde_json::to_string_pretty(&changeset.metadata)?);
+       debug!("changeset.metadata {}", serde_json::to_string_pretty(&changeset.metadata)?);
 
        // verify the signature
        let collection = Collection {
