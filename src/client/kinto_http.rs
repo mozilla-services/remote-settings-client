@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json;
-
 use reqwest::Error as ReqwestError;
+use reqwest::header as header;
 
 pub type KintoObject = serde_json::Value;
 
@@ -19,10 +19,30 @@ pub struct ChangesetResponse {
 }
 
 #[derive(Debug)]
-pub enum KintoError {}
+pub enum KintoError {
+    Error {name: String}
+}
 
 impl From<ReqwestError> for KintoError {
     fn from(err: ReqwestError) -> Self {
+        err.into()
+    }
+}
+
+impl From<serde_json::error::Error> for KintoError {
+    fn from(err: serde_json::error::Error) -> Self {
+        err.into()
+    }
+}
+
+impl From<header::ToStrError> for KintoError {
+    fn from(err: header::ToStrError) -> Self {
+        err.into()
+    }
+}
+
+impl From<std::num::ParseIntError> for KintoError {
+    fn from(err: std::num::ParseIntError) -> Self {
         err.into()
     }
 }
@@ -41,15 +61,14 @@ pub async fn get_records(
     let resp = reqwest::get(&url).await?;
     let timestamp = resp
         .headers()
-        .get("etag")
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_string();
-    let size = resp.headers().get("content-length").unwrap();
+        .get("etag").ok_or_else(|| KintoError::Error {name: "no ETag error".to_owned()})?;
+
+    println!("Timestamp : {:?}", timestamp);
+
+    let size = resp.headers().get("content-length").ok_or_else(|| -1);
     println!("Download {:?} bytes...", size);
     let body = resp.text().await?;
-    let result: ChangesetResponse = serde_json::from_str(&body).unwrap();
+    let result: ChangesetResponse = serde_json::from_str(&body)?;
 
     Ok(result)
 }
@@ -66,8 +85,17 @@ pub async fn get_changeset(
     );
     println!("Fetch {}...", url);
     let resp = reqwest::get(&url).await?;
+
+    let size: i64 = match resp.headers().get("content-length").ok_or_else(|| -1) {
+        Ok(val) => val.to_str()?.parse()?,
+        Err(default) => {
+            default
+        }
+    };
+    println!("Download {:?} bytes...", size);
+
     let body = resp.text().await?;
-    let result: ChangesetResponse = serde_json::from_str(&body).unwrap();
+    let result: ChangesetResponse = serde_json::from_str(&body)?;
 
     Ok(result)
 }
