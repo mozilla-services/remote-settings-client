@@ -1,3 +1,7 @@
+//! # Remote-Settings Client
+//! 
+//! A library for fetching Remote-Settings data
+
 pub mod client;
 
 pub use client::Collection;
