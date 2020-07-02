@@ -1,4 +1,4 @@
-# Remote-Settings-Client (Project Ubique)
+# Remote-Settings-Client
 
 A Remote-Settings Client built using Rust to read collection data.
 
