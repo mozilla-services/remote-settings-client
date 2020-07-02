@@ -44,7 +44,6 @@ Dependencies: [log](https://docs.rs/log), [env_logger](https://docs.rs/env_logge
 
 ```toml
 [dependencies]
-log = "0.4.0"
 env_logger = "0.7.1"
 ```
 
