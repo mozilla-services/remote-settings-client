@@ -4,13 +4,13 @@ A Remote-Settings Client built using Rust to read collection data.
 
 - Read-Only
 - Customizable Signature Verification
-- Cross-Platform
-- Robust
+<!-- - Cross-Platform
+- Robust -->
 - Rust!
 
 ## Example
 
-Below example uses [log](https://docs.rs/log/0.4.8/log/), [env_logger](https://docs.rs/env_logger/0.7.1/env_logger/), and [Tokio](https://tokio.rs) and utilizes some optional features, so your `Cargo.toml` could look like this:
+Below example uses [Tokio](https://tokio.rs) and utilizes some optional features, so your `Cargo.toml` could look like this:
 
 ```toml
 [dependencies]
@@ -19,16 +19,13 @@ log = "0.4.0"
 env_logger = "0.7.1"
 ```
 
-For logging, run `RUSTLOG={debug/info} cargo run` to see debug/info log messages (error messages are printed by default)
-
 ### Fetching Records from Collection
 ```rust,no_run
-use remote_settings::{Collection, Client, Verification, SignatureError};
+use remote_settings::{Client};
 
 #[tokio::main]
 async fn main() {
-  env_logger::init(); // initialize logger
-  
+  ...  
   // we pass None for Verifier parameter to fall back to default verifier implementation
   // here server_url and bucket_name will be set to default values
   let client = Client::create_with_collection("example-collection", None);
@@ -37,10 +34,30 @@ async fn main() {
         Ok(records) => println!("{:?}", records),
         Err(error) => println!("Could not fetch records: {:?}", error)
   };
+  ...
 }
 ```
 
-For more examples, go to the [demo project](https://github.com/Vishwa-Mozilla/Remote-Settings-Client/tree/master/rs-client-demo)
+### Logging
+
+Dependencies: [log](https://docs.rs/log), [env_logger](https://docs.rs/env_logger)
+
+```toml
+[dependencies]
+log = "0.4.0"
+env_logger = "0.7.1"
+```
+
+For logging, run `RUSTLOG={debug/info} cargo run` to see debug/info log messages from the Remote-Settings-Client (error messages are printed by default)
+
+```rust,no_run
+#[tokio::main]
+async fn main() {
+  env_logger::init() // initialize logger
+}
+```
+
+For more examples, go to the [demo project](rs-client-demo)
 
 ## License
 
