@@ -1,8 +1,7 @@
 # Contributing to Remote-Settings Client
 
-When contributing to the development of Remote-Settings Client, please first discuss the change
-you wish to make via issue, email, or any other method with the maintainers before
-making a change.
+When contributing to the development of Remote-Settings Client, create a new issue and make sure with the maintainers before
+making a change that the change is really needed.
 
 Please note we have a [Code of Conduct](CODE-OF-CONDUCT), please follow it in all
 your interactions with the project.
