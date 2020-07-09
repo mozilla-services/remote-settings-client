@@ -18,8 +18,36 @@ use signatory::{
 use signatory_ring::ecdsa::P384Verifier;
 use reqwest::Error as ReqwestError;
 
+/// A trait for giving a type a custom signature verifier
+/// 
+/// Sometimes, you want to use your own verification implementation to verify signature retrieved from the remote-settings server
+/// 
+/// # How can I implement ```Verification```?
+/// ```rust
+/// # use remote_settings_client::{SignatureError, Verification};
+/// # use remote_settings_client::client::Collection;
+/// # use async_trait::async_trait;
+/// struct SignatureVerifier {}
+/// 
+/// #[async_trait]
+/// impl Verification for SignatureVerifier {
+///     async fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
+///         Ok(())
+///     }
+/// }
+/// ```
 #[async_trait]
 pub trait Verification {
+
+    /// Verifies signature for given ```Collection``` struct
+    ///
+    /// # Errors
+    /// If an error occurs while verifying, ```SignatureError``` is returned
+    /// 
+    /// If Signature Format is invalid ```SignatureError::InvalidSignature``` is returned
+    /// 
+    /// If Signature does not match ```SignatureError::VerificationError``` is returned
+    /// 
     async fn verify(&self, collection: &Collection) -> Result<(), SignatureError>;
 }
 
