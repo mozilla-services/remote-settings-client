@@ -1,3 +1,4 @@
+
 mod kinto_http;
 mod signatures;
 
@@ -40,6 +41,7 @@ impl From<SignatureError> for ClientError {
     }
 }
 
+/// Response body from remote-settings server
 #[derive(Debug, PartialEq)]
 pub struct Collection {
     pub bid: String,
@@ -49,11 +51,39 @@ pub struct Collection {
     pub timestamp: u64,
 }
 
+/// Handles requests to Remote-Settings
+/// # Examples
+/// Create Client with collection_name and without custom Verifier
+/// ```rust
+/// # use remote_settings_client::{SignatureError, Verification};
+/// # use remote_settings_client::{Client, Collection};
+/// # fn main() {
+///   let client = Client::create_with_collection("collection_name", None);
+/// # }
+/// ```
+/// 
+/// Create Client with custom Verifier
+/// ```rust
+/// # use remote_settings_client::{SignatureError, Verification};
+/// # use remote_settings_client::{Client, Collection};
+/// # use async_trait::async_trait;
+/// struct CustomVerifier{}
+/// 
+/// # #[async_trait]
+/// impl Verification for CustomVerifier {
+///    async fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
+///        Ok(()) // everything is verified!
+///    }
+/// }
+/// 
+/// # fn main() {
+///   let client = Client::create_with_collection("collection_name", Some(Box::new(CustomVerifier{})));
+/// # }
+/// ```
 pub struct Client {
     server_url: String,
     bucket_name: String,
     collection_name: String,
-    // Box<dyn Trait> is necessary since implementation of Verification can be of any size unknown at compile time
     verifier: Box<dyn Verification> 
 }
 
@@ -85,6 +115,7 @@ impl Client {
         }
     }
 
+    /// Create a Client from a bucket name, collection name and with an optional custom verifier
     pub fn create_with_bucket_collection(bucket_name: &str, collection_name: &str, verifier: Option<Box<dyn Verification>>) -> Self {
         return Client {
             bucket_name: bucket_name.to_owned(),
@@ -94,6 +125,7 @@ impl Client {
         }
     }
     
+    /// Create a Client from a server url, collection name and with an optional custom verifier
     pub fn create_with_server_collection(server_url: &str, collection_name: &str, verifier: Option<Box<dyn Verification>>) -> Self {
         return Client {
             server_url: server_url.to_owned(),
@@ -103,6 +135,7 @@ impl Client {
         }
     }
 
+    /// Create a Client from a server url, bucket name, collection name and with an optional custom verifier
     pub fn create_with_server_bucket_collection(server_url: &str, bucket_name: &str, collection_name: &str, verifier: Option<Box<dyn Verification>>) -> Self {
         return Client {
             server_url: server_url.to_owned(),
@@ -112,7 +145,25 @@ impl Client {
         }
     }
 
-    // For parameter expected, default value is 0
+    /// Fetches records for a given collection from the remote-settings server
+    /// 
+    /// # Parameter `expected`
+    /// - default value is 0
+    /// - used for cache busting
+    /// 
+    /// # Examples
+    /// ```text
+    /// async fn main() {
+    ///   let expected: u64 = 0;
+    ///   match Client::create_with_collection("collection", None).get(expected).await {
+    ///     Ok(records) => println!("{:?}", records),
+    ///     Err(error) => println!("Could not fetch records: {:?}", error)
+    ///   };
+    /// }
+    /// ```
+    /// 
+    /// # Errors
+    /// If an error occurs while fetching records, ```ClientError``` is returned
     pub async fn get(&self, expected: u64) -> Result<Vec<KintoObject>, ClientError> {
         let changeset = get_changeset(
             &self.server_url,
