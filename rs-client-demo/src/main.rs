@@ -20,7 +20,7 @@ async fn main() {
 
     let expected = 0; // used to specify file version for cache busting
     
-    match client.get(expected).await {
+    match client.get().await {
         Ok(records) => println!("{:?}", records),
         Err(error) => println!("Could not fetch records: {:?}", error)
     };
@@ -28,7 +28,7 @@ async fn main() {
     println!("Fetching records using RS client with custom Verifier");
     let client_with_custom_verifier = Client::create_with_collection("url-classifier-skip-urls", Some(Box::new(CustomVerifier{})));
     
-    match client_with_custom_verifier.get(expected).await {
+    match client_with_custom_verifier.get().await {
         Ok(records) => println!("{:?}", records),
         Err(error) => println!("Could not fetch records: {:?}", error)
     };

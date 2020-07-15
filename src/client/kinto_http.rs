@@ -6,9 +6,9 @@ use log::{debug, info};
 
 pub type KintoObject = serde_json::Value;
 
-#[derive(Deserialize)]
-struct KintoPluralResponse {
-    data: Vec<KintoObject>,
+#[derive(Deserialize, Debug)]
+struct KintoPluralResponse<T> {
+    data: Vec<T>,
 }
 
 #[derive(Deserialize)]
@@ -17,6 +17,16 @@ pub struct ChangesetResponse {
     pub metadata: KintoObject,
     pub changes: Vec<KintoObject>,
     pub timestamp: u64,
+}
+
+#[derive(Deserialize)]
+#[derive(Debug)]
+pub struct LatestChangeResponse {
+    pub id: String,
+    pub last_modified: u64,
+    pub bucket: String,
+    pub collection: String,
+    pub host: String
 }
 
 #[derive(Debug)]
@@ -48,18 +58,19 @@ impl From<std::num::ParseIntError> for KintoError {
     }
 }
 
-pub async fn get_records(
+pub async fn get_last_modified_change(
     server: &str,
     bid: &str,
     cid: &str,
-    expected: u64,
-) -> Result<ChangesetResponse, KintoError> {
+) -> Result<u64, KintoError> {
     let url = format!(
-        "{}/buckets/{}/collections/{}/records?_expected={}",
-        server, bid, cid, expected
+        "{}/buckets/monitor/collections/changes/records?bucket={}&collection={}",
+        server, bid, cid
     );
-    info!("Fetch {}...", url);
+
+    info!("Fetch latest change {}...", url);
     let resp = reqwest::get(&url).await?;
+
     let timestamp = resp
         .headers()
         .get("etag").ok_or_else(|| KintoError::Error {name: "no ETag error".to_owned()})?;
@@ -68,10 +79,19 @@ pub async fn get_records(
 
     let size = resp.headers().get("content-length").ok_or_else(|| -1);
     debug!("Download {:?} bytes...", size);
+    
     let body = resp.text().await?;
-    let result: ChangesetResponse = serde_json::from_str(&body)?;
 
-    Ok(result)
+    let latest_change: KintoPluralResponse<LatestChangeResponse> = serde_json::from_str(&body)?;
+    
+    let last_modified = match latest_change.data.get(0) {
+        Some(change) => change.last_modified,
+        _ => 0 // 0 by default
+    };
+
+    debug!("collection {}, bucket {}, last modified timestamp {}", cid, bid, last_modified);
+
+    Ok(last_modified)
 }
 
 pub async fn get_changeset(
@@ -80,6 +100,9 @@ pub async fn get_changeset(
     cid: &str,
     expected: u64,
 ) -> Result<ChangesetResponse, KintoError> {
+
+    debug!("The expected value for bucket={}, collection={} is {}", bid, cid, expected);
+
     let url = format!(
         "{}/buckets/{}/collections/{}/changeset?_expected={}",
         server, bid, cid, expected

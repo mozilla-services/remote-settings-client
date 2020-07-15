@@ -3,7 +3,7 @@ mod kinto_http;
 mod signatures;
 
 use log::{debug};
-use kinto_http::{get_changeset, KintoObject, KintoError};
+use kinto_http::{get_last_modified_change, get_changeset, KintoObject, KintoError};
 use signatures::{DefaultVerifier};
 pub use signatures::{SignatureError, Verification};
 
@@ -146,16 +146,11 @@ impl Client {
     }
 
     /// Fetches records for a given collection from the remote-settings server
-    /// 
-    /// # Parameter `expected`
-    /// - default value is 0
-    /// - used for cache busting
-    /// 
+    ///
     /// # Examples
     /// ```text
     /// async fn main() {
-    ///   let expected: u64 = 0;
-    ///   match Client::create_with_collection("collection", None).get(expected).await {
+    ///   match Client::create_with_collection("collection", None).get().await {
     ///     Ok(records) => println!("{:?}", records),
     ///     Err(error) => println!("Could not fetch records: {:?}", error)
     ///   };
@@ -164,12 +159,15 @@ impl Client {
     /// 
     /// # Errors
     /// If an error occurs while fetching records, ```ClientError``` is returned
-    pub async fn get(&self, expected: u64) -> Result<Vec<KintoObject>, ClientError> {
+    pub async fn get(&self) -> Result<Vec<KintoObject>, ClientError> {
+
+        let expected = get_last_modified_change(&self.server_url, &self.bucket_name, &self.collection_name).await?;
+
         let changeset = get_changeset(
             &self.server_url,
             &self.bucket_name,
             &self.collection_name,
-            expected,
+            expected
        )
        .await?;
 
@@ -192,9 +190,11 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use httpmock::Method::GET;
-    use httpmock::{mock, with_mock_server};
+    use httpmock::Method::{GET};
+    use httpmock::{Mock, MockServer};
     use async_trait::async_trait;
+    use env_logger;
+    use log::{debug};
     use super::signatures::{Verification, SignatureError};
     use super::{Client, Collection, ClientError};
 
@@ -223,85 +223,109 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    #[with_mock_server]
-    async fn test_get_fails_if_verification_fails_with_verification_error() {
-        let get_changeset_mock = mock(GET, "/buckets/main/collections/url-classifier-skip-urls/changeset")
-        .expect_query_param("_expected", "0")
-        .return_status(200)
-        .return_header("Content-Type", "application/json")
-        .return_body(
-            r#"{
-                "metadata": {},
-                "changes": [],
-                "timestamp": 0
-            }"#
-        ).create();
+    fn init() {
+        let _ = env_logger::builder().is_test(true).try_init();    
+    }
 
-        let actual_result = Client::create_with_server_collection("http://localhost:5000", "url-classifier-skip-urls", Some(Box::new(VerifierWithVerificatonError{}))).get(0).await;
-        let expected_result = Err(ClientError::VerificationError{name: "verification error".to_owned()});
-        assert_eq!(1, get_changeset_mock.times_called());
-        assert_eq!(expected_result, actual_result);
+    struct Test<'a> {
+        test_description: &'a str,
+        client: Client,
+        changeset_response_body: &'a str,
+        expected_result: Result<Vec<serde_json::Value>, ClientError>
     }
 
     #[tokio::test]
-    #[with_mock_server]
-    async fn test_get_passes_if_verification_passes() {
-        let expected_version: u64 = 10;
+    async fn test_get_verification() {
+        init();
 
-        let get_changeset_mock = mock(GET, "/buckets/main/collections/url-classifier-skip-urls/changeset")
-        .expect_query_param("_expected", &expected_version.to_string())
-        .return_status(200)
-        .return_header("Content-Type", "application/json")
-        .return_body(
-            r#"{
-                "metadata": {
-                    "data": "test"
-                },
-                "changes": [{
-                    "id": 1,
-                    "last_modified": 100
-                }],
-                "timestamp": 0
-            }"#
-        ).create();
+        let mock_server = MockServer::start();
 
-        let actual_result = Client::create_with_server_collection("http://localhost:5000", "url-classifier-skip-urls", Some(Box::new(VerifierWithNoError{}))).get(expected_version).await;
-        assert_eq!(1 , get_changeset_mock.times_called());
+        const EXPECTED_VERSION: u64 = 9173;
 
-        match actual_result {
-            Ok(records) => {
-                assert_eq!(
-                    vec![
-                        json!({
-                            "id": 1,
-                            "last_modified": 100
-                        })
-                    ], records
-                )
+        let tests = vec![
+            Test {
+                test_description: "test_get_fails_if_verification_fails_with_verification_error",
+                client: Client::create_with_server_collection(&mock_server.url(""), "url-classifier-skip-urls", Some(Box::new(VerifierWithVerificatonError{}))),
+                changeset_response_body:  r#"{
+                    "metadata": {},
+                    "changes": [],
+                    "timestamp": 0
+                }"#,
+                expected_result: Err(ClientError::VerificationError{name: "verification error".to_owned()})
             },
-            Err(error) => panic!("invalid response : {:?}", error)
-        };
-    }
+            Test {
+                test_description: "test_get_passes_if_verification_passes",
+                client: Client::create_with_server_collection(&mock_server.url(""), "url-classifier-skip-urls", Some(Box::new(VerifierWithNoError{}))),
+                changeset_response_body: r#"{
+                    "metadata": {
+                        "data": "test"
+                    },
+                    "changes": [{
+                        "id": 1,
+                        "last_modified": 100
+                    }],
+                    "timestamp": 0
+                }"#,
+                expected_result: Ok(vec![json!({
+                        "id": 1,
+                        "last_modified": 100
+                    })
+                ])
+            },
+            Test {
+                test_description: "test_get_fails_if_verification_fails_with_invalid_signature_error",
+                client: Client::create_with_server_collection(&mock_server.url(""), "url-classifier-skip-urls", Some(Box::new(VerifierWithInvalidSignatureError{}))),
+                changeset_response_body: r#"{
+                    "metadata": {},
+                    "changes": [],
+                    "timestamp": 0
+                }"#,
+                expected_result: Err(ClientError::Error{name: "invalid signature error".to_owned()})
+            }
+        ];
 
-    #[tokio::test]
-    #[with_mock_server]
-    async fn test_get_fails_if_verification_fails_with_invalid_signature_error() {
-        let get_changeset_mock = mock(GET, "/buckets/main/collections/url-classifier-skip-urls/changeset")
-        .expect_query_param("_expected", "0")
-        .return_status(200)
-        .return_header("Content-Type", "application/json")
-        .return_body(
+        for test in &tests {
+
+            debug!("test name: {}", test.test_description);
+
+            let mut get_latest_change_mock = Mock::new()
+            .expect_method(GET)
+            .expect_path("/buckets/monitor/collections/changes/records")
+            .expect_query_param("bucket", "main")
+            .expect_query_param("collection", "url-classifier-skip-urls")
+            .return_status(200)
+            .return_header("Content-Type", "application/json")
+            .return_header("etag", "12345")
+            .return_body(
             r#"{
-                "metadata": {},
-                "changes": [],
-                "timestamp": 0
+                "data": [
+                    {
+                        "id": "123",
+                        "last_modified": 9173,
+                        "bucket":"main",
+                        "collection":"url-classifier-skip-urls",
+                        "host":"localhost:5000"
+                    }
+                ]
             }"#
-        ).create();
+            ).create_on(&mock_server);
 
-        let actual_result = Client::create_with_server_collection("http://localhost:5000", "url-classifier-skip-urls", Some(Box::new(VerifierWithInvalidSignatureError{}))).get(0).await;
-        let expected_result = Err(ClientError::Error{name: "invalid signature error".to_owned()});
-        assert_eq!(expected_result, actual_result);
-        assert_eq!(1, get_changeset_mock.times_called());
+            let mut get_changeset_mock = Mock::new()
+            .expect_method(GET)
+            .expect_path("/buckets/main/collections/url-classifier-skip-urls/changeset")
+            .expect_query_param("_expected", &EXPECTED_VERSION.to_string())
+            .return_status(200)
+            .return_header("Content-Type", "application/json")
+            .return_body(test.changeset_response_body).create_on(&mock_server);
+
+            let actual_result = test.client.get().await;
+            assert_eq!(actual_result, test.expected_result);
+            assert_eq!(1, get_changeset_mock.times_called());
+            assert_eq!(1, get_latest_change_mock.times_called());
+
+            get_changeset_mock.delete();
+            get_latest_change_mock.delete();
+        }
+
     }
 }
