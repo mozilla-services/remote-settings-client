@@ -31,6 +31,9 @@ jobs:
       - run:
           name: Run canonical_json tests
           command: cd src/client/signatures/canonical_json/src; cargo test
+      - run:
+          name: Run optional features' tests
+          command: cargo test --features=openssl_verifier
 workflows:
   version: 2
   test:
