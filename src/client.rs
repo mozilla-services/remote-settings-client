@@ -303,7 +303,6 @@ mod tests {
         }"#
         );
 
-
         test_get(
             &mock_server,
             Client::create_with_server_collection(
