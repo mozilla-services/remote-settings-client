@@ -144,15 +144,11 @@ impl Verification for OpenSSLVerifier {
 #[cfg(feature = "openssl_verifier")]
 #[cfg(test)]
 mod tests {
-    use super::{Collection, OpenSSLVerifier, SignatureError, Verification};
+    use super::{Collection, OpenSSLVerifier, Verification};
     use env_logger;
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
-    use log::debug;
     use serde_json::json;
-    use url::{ParseError, Url};
-    use viaduct::{set_backend, Error as ViaductError, Request};
-    use viaduct_reqwest::ReqwestBackend;
 
     fn openssl_verify(
         mock_server: &MockServer,
@@ -184,7 +180,6 @@ mod tests {
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
-        set_backend(&ReqwestBackend).unwrap();
     }
 
     #[test]

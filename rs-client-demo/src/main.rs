@@ -29,8 +29,6 @@ fn main() {
 
     let client = Client::create_with_collection("url-classifier-skip-urls", None);
 
-    let expected: u64 = 0; // used to specify file version for cache busting
-
     match client.get(expected) {
         Ok(records) => {
             print_records(&records)
