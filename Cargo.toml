@@ -23,3 +23,5 @@ signatory = { version = "0.11", features = ["ecdsa", "encoding"]}
 signatory-ring = "0.11"
 log = "0.4.0"
 url = "2.1"
+# specifying viaduct dependency from git repo since viaduct is not published yet to crates.io 
+viaduct = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}

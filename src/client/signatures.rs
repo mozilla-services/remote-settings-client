@@ -1,5 +1,4 @@
 use crate::client::Collection;
-
 use base64;
 use canonical_json::ser::{to_string, CanonicalJSONError};
 use openssl::bn::BigNumContext;

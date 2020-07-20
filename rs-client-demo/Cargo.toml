@@ -14,3 +14,6 @@ viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev
 remote-settings-client = {path = "../"}
 log = "0.4.0"
 env_logger = "0.7.1"
+# Specifying viaduct, viaduct-reqwest dependency from git repo since viaduct, viaduct-reqwest are not published yet to crates.io 
+viaduct = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
+viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
