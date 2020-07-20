@@ -5,11 +5,12 @@ authors = ["Vishwa Patel <vpatel@mozilla.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[dev-dependencies]
+# cannot use tags since viaduct, viaduct-reqwest is not published yet  
+viaduct = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
+viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
 
 [dependencies]
 remote-settings-client = {path = "../"}
 log = "0.4.0"
 env_logger = "0.7.1"
-# cannot use tags since viaduct, viaduct-reqwest is not published yet  
-viaduct = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
-viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}

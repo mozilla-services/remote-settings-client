@@ -9,6 +9,8 @@ edition = "2018"
 [dev-dependencies]
 env_logger = "0.7.1"
 httpmock = "0.3.5"
+# cannot use tags since viaduct is not published yet  
+viaduct = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
 
 [dependencies]
 base64 = "0.11.0"
@@ -21,5 +23,3 @@ signatory = { version = "0.11", features = ["ecdsa", "encoding"]}
 signatory-ring = "0.11"
 log = "0.4.0"
 url = "2.1"
-# cannot use tags since viaduct is not published yet  
-viaduct = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
