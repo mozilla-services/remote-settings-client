@@ -1,20 +1,19 @@
 use crate::client::Collection;
 
-use async_trait::async_trait;
 use base64;
 use canonical_json::ser::{to_string, CanonicalJSONError};
 use openssl::bn::BigNumContext;
 use openssl::ec::{EcGroup, PointConversionForm};
 use openssl::nid::Nid;
 use openssl::x509::X509;
-use reqwest;
-use reqwest::Error as ReqwestError;
 use serde_json::json;
 use signatory::{
     ecdsa::{curve::NistP384, FixedSignature},
     verify_sha384, EcdsaPublicKey, Signature,
 };
 use signatory_ring::ecdsa::P384Verifier;
+use url::{ParseError, Url};
+use viaduct::{Error as ViaductError, Request};
 
 /// A trait for giving a type a custom signature verifier
 ///
@@ -24,17 +23,14 @@ use signatory_ring::ecdsa::P384Verifier;
 /// ```rust
 /// # use remote_settings_client::{SignatureError, Verification};
 /// # use remote_settings_client::client::Collection;
-/// # use async_trait::async_trait;
 /// struct SignatureVerifier {}
 ///
-/// #[async_trait]
 /// impl Verification for SignatureVerifier {
-///     async fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
+///     fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
 ///         Ok(())
 ///     }
 /// }
 /// ```
-#[async_trait]
 pub trait Verification {
     /// Verifies signature for given ```Collection``` struct
     ///
@@ -45,7 +41,7 @@ pub trait Verification {
     ///
     /// If Signature does not match ```SignatureError::VerificationError``` is returned
     ///
-    async fn verify(&self, collection: &Collection) -> Result<(), SignatureError>;
+    fn verify(&self, collection: &Collection) -> Result<(), SignatureError>;
 }
 
 #[derive(Debug)]
@@ -54,8 +50,14 @@ pub enum SignatureError {
     VerificationError { name: String },
 }
 
-impl From<ReqwestError> for SignatureError {
-    fn from(err: ReqwestError) -> Self {
+impl From<ViaductError> for SignatureError {
+    fn from(err: ViaductError) -> Self {
+        err.into()
+    }
+}
+
+impl From<ParseError> for SignatureError {
+    fn from(err: ParseError) -> Self {
         err.into()
     }
 }
@@ -90,13 +92,20 @@ impl From<base64::DecodeError> for SignatureError {
 
 pub struct DefaultVerifier {}
 
-#[async_trait]
 impl Verification for DefaultVerifier {
-    async fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
+    fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
         // Fetch certificate PEM (public key).
-        let x5u = collection.metadata["signature"]["x5u"].as_str().unwrap();
-        let resp = reqwest::get(&x5u.to_string()).await?;
-        let pem = resp.bytes().await?;
+        let x5u = match collection.metadata["signature"]["x5u"].as_str() {
+            Some(x5u) => x5u,
+            None => {
+                return Err(SignatureError::InvalidSignature {
+                    name: "x5u field not present in signature".to_owned(),
+                });
+            }
+        };
+
+        let resp = Request::get(Url::parse(&x5u)?).send()?;
+        let pem = resp.body;
 
         // Parse PEM (OpenSSL)
         let cert = X509::from_pem(&pem)?;
@@ -112,9 +121,11 @@ impl Verification for DefaultVerifier {
         let pk: EcdsaPublicKey<NistP384> = EcdsaPublicKey::from_bytes(&public_key_bytes)?;
 
         // Instantiate signature
-        let b64_signature = collection.metadata["signature"]["signature"]
-            .as_str()
-            .unwrap_or("");
+        let b64_signature = match collection.metadata["signature"]["signature"].as_str() {
+            Some(b64_signature) => b64_signature,
+            None => "",
+        };
+
         let signature_bytes = base64::decode_config(&b64_signature, base64::URL_SAFE)?;
         let signature = FixedSignature::<NistP384>::from_bytes(&signature_bytes)?;
 
