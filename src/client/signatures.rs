@@ -95,22 +95,11 @@ pub struct DefaultVerifier {}
 impl Verification for DefaultVerifier {
     fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
         // Fetch certificate PEM (public key).
-<<<<<<< HEAD
-        let x5u = match collection.metadata["signature"]["x5u"].as_str() {
-            Some(x5u) => x5u,
-            None => {
-                return Err(SignatureError::InvalidSignature {
-                    name: "x5u field not present in signature".to_owned(),
-                });
-            }
-        };
-=======
         let x5u = collection.metadata["signature"]["x5u"].as_str().ok_or_else(
             || SignatureError::InvalidSignature {
                 name: "x5u field not present in signature".to_owned()
                }
         )?;
->>>>>>> Introduce Viaduct, synchronous API
 
         let resp = Request::get(Url::parse(&x5u)?).send()?;
         let pem = resp.body;
