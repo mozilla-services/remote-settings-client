@@ -4,7 +4,7 @@
 
 use env_logger;
 use remote_settings_client::{Client, Collection, SignatureError, Verification};
-pub use viaduct::{note_backend, set_backend};
+pub use viaduct::{set_backend};
 pub use viaduct_reqwest::ReqwestBackend;
 
 struct CustomVerifier {}

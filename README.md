@@ -14,7 +14,6 @@ Below example uses [Viaduct](https://github.com/mozilla/application-services/tre
 
 ```toml
 [dependencies]
-tokio = { version = "0.2.21", features = ["macros", "tcp"] }
 log = "0.4.0"
 env_logger = "0.7.1"
 viaduct = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
@@ -24,7 +23,7 @@ viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev
 ### Fetching Records from Collection
 ```rust,no_run
 use remote_settings::{Client};
-pub use viaduct::{note_backend, set_backend};
+pub use viaduct::{set_backend};
 pub use viaduct_reqwest::ReqwestBackend;
 
 fn main() {
