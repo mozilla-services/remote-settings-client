@@ -1,8 +1,8 @@
+use log::{debug, info};
+use reqwest::header;
+use reqwest::Error as ReqwestError;
 use serde::Deserialize;
 use serde_json;
-use reqwest::Error as ReqwestError;
-use reqwest::header as header;
-use log::{debug, info};
 
 pub type KintoObject = serde_json::Value;
 
@@ -11,8 +11,7 @@ struct KintoPluralResponse {
     data: Vec<KintoObject>,
 }
 
-#[derive(Deserialize)]
-#[derive(Debug)]
+#[derive(Deserialize, Debug)]
 pub struct ChangesetResponse {
     pub metadata: KintoObject,
     pub changes: Vec<KintoObject>,
@@ -21,7 +20,7 @@ pub struct ChangesetResponse {
 
 #[derive(Debug)]
 pub enum KintoError {
-    Error {name: String}
+    Error { name: String },
 }
 
 impl From<ReqwestError> for KintoError {
@@ -62,7 +61,10 @@ pub async fn get_records(
     let resp = reqwest::get(&url).await?;
     let timestamp = resp
         .headers()
-        .get("etag").ok_or_else(|| KintoError::Error {name: "no ETag error".to_owned()})?;
+        .get("etag")
+        .ok_or_else(|| KintoError::Error {
+            name: "no ETag error".to_owned(),
+        })?;
 
     debug!("Timestamp : {:?}", timestamp);
 
@@ -89,9 +91,7 @@ pub async fn get_changeset(
 
     let size: i64 = match resp.headers().get("content-length").ok_or_else(|| -1) {
         Ok(val) => val.to_str()?.parse()?,
-        Err(default) => {
-            default
-        }
+        Err(default) => default,
     };
     debug!("Download {:?} bytes...", size);
 

@@ -1,34 +1,32 @@
 use crate::client::Collection;
 
-mod canonical_json;
-
 use async_trait::async_trait;
-use canonical_json::serialize;
+use base64;
+use canonical_json::ser::{to_string, CanonicalJSONError};
 use openssl::bn::BigNumContext;
 use openssl::ec::{EcGroup, PointConversionForm};
 use openssl::nid::Nid;
 use openssl::x509::X509;
-use base64;
 use reqwest;
+use reqwest::Error as ReqwestError;
 use serde_json::json;
 use signatory::{
     ecdsa::{curve::NistP384, FixedSignature},
     verify_sha384, EcdsaPublicKey, Signature,
 };
 use signatory_ring::ecdsa::P384Verifier;
-use reqwest::Error as ReqwestError;
 
 /// A trait for giving a type a custom signature verifier
-/// 
+///
 /// Sometimes, you want to use your own verification implementation to verify signature retrieved from the remote-settings server
-/// 
+///
 /// # How can I implement ```Verification```?
 /// ```rust
 /// # use remote_settings_client::{SignatureError, Verification};
 /// # use remote_settings_client::client::Collection;
 /// # use async_trait::async_trait;
 /// struct SignatureVerifier {}
-/// 
+///
 /// #[async_trait]
 /// impl Verification for SignatureVerifier {
 ///     async fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
@@ -38,16 +36,15 @@ use reqwest::Error as ReqwestError;
 /// ```
 #[async_trait]
 pub trait Verification {
-
     /// Verifies signature for given ```Collection``` struct
     ///
     /// # Errors
     /// If an error occurs while verifying, ```SignatureError``` is returned
-    /// 
+    ///
     /// If Signature Format is invalid ```SignatureError::InvalidSignature``` is returned
-    /// 
+    ///
     /// If Signature does not match ```SignatureError::VerificationError``` is returned
-    /// 
+    ///
     async fn verify(&self, collection: &Collection) -> Result<(), SignatureError>;
 }
 
@@ -73,6 +70,12 @@ impl From<signatory::error::Error> for SignatureError {
 
 impl From<openssl::error::ErrorStack> for SignatureError {
     fn from(err: openssl::error::ErrorStack) -> Self {
+        err.into()
+    }
+}
+
+impl From<CanonicalJSONError> for SignatureError {
+    fn from(err: CanonicalJSONError) -> Self {
         err.into()
     }
 }
@@ -118,10 +121,11 @@ impl Verification for DefaultVerifier {
         // Serialized data.
         let mut sorted_records = collection.records.to_vec();
         sorted_records.sort_by(|a, b| (a["id"]).to_string().cmp(&b["id"].to_string()));
-        let serialized = serialize(&json!({
+        let serialized = to_string(&json!({
             "data": sorted_records,
             "last_modified": collection.timestamp.to_string().to_owned()
-        }));
+        }))?;
+
         let data = format!("Content-Signature:\x00{}", serialized);
 
         // Verify
