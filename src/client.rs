@@ -1,3 +1,7 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
 mod kinto_http;
 mod signatures;
 
@@ -63,12 +67,10 @@ pub struct Collection {
 /// ```rust
 /// # use remote_settings_client::{SignatureError, Verification};
 /// # use remote_settings_client::{Client, Collection};
-/// # use async_trait::async_trait;
 /// struct CustomVerifier{}
 ///
-/// # #[async_trait]
 /// impl Verification for CustomVerifier {
-///    async fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
+///    fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
 ///        Ok(()) // everything is verified!
 ///    }
 /// }
@@ -165,9 +167,9 @@ impl Client {
     ///
     /// # Examples
     /// ```text
-    /// async fn main() {
+    /// fn main() {
     ///   let expected: u64 = 0;
-    ///   match Client::create_with_collection("collection", None).get(expected).await {
+    ///   match Client::create_with_collection("collection", None).get(expected) {
     ///     Ok(records) => println!("{:?}", records),
     ///     Err(error) => println!("Could not fetch records: {:?}", error)
     ///   };
@@ -176,14 +178,13 @@ impl Client {
     ///
     /// # Errors
     /// If an error occurs while fetching records, ```ClientError``` is returned
-    pub async fn get(&self, expected: u64) -> Result<Vec<KintoObject>, ClientError> {
+    pub fn get(&self, expected: u64) -> Result<Vec<KintoObject>, ClientError> {
         let changeset = get_changeset(
             &self.server_url,
             &self.bucket_name,
             &self.collection_name,
             expected,
-        )
-        .await?;
+        )?;
 
         debug!(
             "changeset.metadata {}",
@@ -199,7 +200,7 @@ impl Client {
             timestamp: changeset.timestamp,
         };
 
-        self.verifier.verify(&collection).await?;
+        self.verifier.verify(&collection)?;
         Ok(collection.records)
     }
 }
@@ -208,7 +209,6 @@ impl Client {
 mod tests {
     use super::signatures::{SignatureError, Verification};
     use super::{Client, ClientError, Collection};
-    use async_trait::async_trait;
     use httpmock::Method::GET;
     use httpmock::{mock, with_mock_server};
     use serde_json::json;
@@ -217,34 +217,30 @@ mod tests {
     struct VerifierWithNoError {}
     struct VerifierWithInvalidSignatureError {}
 
-    #[async_trait]
     impl Verification for VerifierWithVerificatonError {
-        async fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
+        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
             return Err(SignatureError::VerificationError {
                 name: "verification error".to_owned(),
             });
         }
     }
 
-    #[async_trait]
     impl Verification for VerifierWithNoError {
-        async fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
+        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
             Ok(())
         }
     }
 
-    #[async_trait]
     impl Verification for VerifierWithInvalidSignatureError {
-        async fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
+        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
             return Err(SignatureError::InvalidSignature {
                 name: "invalid signature error".to_owned(),
             });
         }
     }
 
-    #[tokio::test]
     #[with_mock_server]
-    async fn test_get_fails_if_verification_fails_with_verification_error() {
+    fn test_get_fails_if_verification_fails_with_verification_error() {
         let get_changeset_mock = mock(
             GET,
             "/buckets/main/collections/url-classifier-skip-urls/changeset",
@@ -266,8 +262,8 @@ mod tests {
             "url-classifier-skip-urls",
             Some(Box::new(VerifierWithVerificatonError {})),
         )
-        .get(0)
-        .await;
+        .get(0);
+
         let expected_result = Err(ClientError::VerificationError {
             name: "verification error".to_owned(),
         });
@@ -275,9 +271,8 @@ mod tests {
         assert_eq!(expected_result, actual_result);
     }
 
-    #[tokio::test]
     #[with_mock_server]
-    async fn test_get_passes_if_verification_passes() {
+    fn test_get_passes_if_verification_passes() {
         let expected_version: u64 = 10;
 
         let get_changeset_mock = mock(
@@ -306,8 +301,7 @@ mod tests {
             "url-classifier-skip-urls",
             Some(Box::new(VerifierWithNoError {})),
         )
-        .get(expected_version)
-        .await;
+        .get(expected_version);
         assert_eq!(1, get_changeset_mock.times_called());
 
         match actual_result {
@@ -322,9 +316,8 @@ mod tests {
         };
     }
 
-    #[tokio::test]
     #[with_mock_server]
-    async fn test_get_fails_if_verification_fails_with_invalid_signature_error() {
+    fn test_get_fails_if_verification_fails_with_invalid_signature_error() {
         let get_changeset_mock = mock(
             GET,
             "/buckets/main/collections/url-classifier-skip-urls/changeset",
@@ -346,8 +339,8 @@ mod tests {
             "url-classifier-skip-urls",
             Some(Box::new(VerifierWithInvalidSignatureError {})),
         )
-        .get(0)
-        .await;
+        .get(0);
+
         let expected_result = Err(ClientError::Error {
             name: "invalid signature error".to_owned(),
         });

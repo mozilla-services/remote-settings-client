@@ -1,26 +1,30 @@
-use async_trait::async_trait;
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 use env_logger;
 use remote_settings_client::{Client, Collection, SignatureError, Verification};
+pub use viaduct::{set_backend};
+pub use viaduct_reqwest::ReqwestBackend;
 
 struct CustomVerifier {}
 
-#[async_trait]
 impl Verification for CustomVerifier {
-    async fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
+    fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
         Ok(()) // everything is verified!
     }
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     env_logger::init();
+    set_backend(&ReqwestBackend).unwrap();
+
     println!("Fetching records using RS client with default Verifier");
 
     let client = Client::create_with_collection("url-classifier-skip-urls", None);
 
     let expected = 0; // used to specify file version for cache busting
 
-    match client.get(expected).await {
+    match client.get(expected) {
         Ok(records) => println!("{:?}", records),
         Err(error) => println!("Could not fetch records: {:?}", error),
     };
@@ -123,7 +127,7 @@ async fn main() {
 
         println!("Fetching records");
 
-        match client.get(0).await {
+        match client.get(0) {
             Ok(records) => println!("Successful fetch"),
             Err(error) => {
                 println!("Could not fetch records: {:?}", error);

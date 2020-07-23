@@ -10,27 +10,31 @@ A Remote-Settings Client built using Rust to read collection data.
 
 ## Example
 
-Below example uses [Tokio](https://tokio.rs) and utilizes some optional features, so your `Cargo.toml` could look like this:
+Below example uses [Viaduct](https://github.com/mozilla/application-services/tree/master/components/viaduct) and [Viaduct-Reqwest](https://github.com/mozilla/application-services/tree/master/components/support/viaduct-reqwest), so your `Cargo.toml` could look like this:
 
 ```toml
 [dependencies]
-tokio = { version = "0.2.21", features = ["macros", "tcp"] }
 log = "0.4.0"
 env_logger = "0.7.1"
+viaduct = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
+viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
 ```
 
 ### Fetching Records from Collection
 ```rust,no_run
 use remote_settings::{Client};
+pub use viaduct::{set_backend};
+pub use viaduct_reqwest::ReqwestBackend;
 
-#[tokio::main]
-async fn main() {
-  ...  
+fn main() {
+  
+  set_backend(&ReqwestBackend).unwrap();
+
   // we pass None for Verifier parameter to fall back to default verifier implementation
   // here server_url and bucket_name will be set to default values
   let client = Client::create_with_collection("example-collection", None);
   
-  match client.get(expected).await {
+  match client.get(expected) {
         Ok(records) => println!("{:?}", records),
         Err(error) => println!("Could not fetch records: {:?}", error)
   };
@@ -50,8 +54,7 @@ env_logger = "0.7.1"
 For logging, run `RUSTLOG={debug/info} cargo run` to see debug/info log messages from the Remote-Settings-Client (error messages are printed by default)
 
 ```rust,no_run
-#[tokio::main]
-async fn main() {
+fn main() {
   env_logger::init() // initialize logger
 }
 ```
