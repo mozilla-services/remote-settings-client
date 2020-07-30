@@ -24,6 +24,7 @@ viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev
 ```rust,no_run
 use remote_settings::{Client};
 pub use viaduct::{set_backend};
+ures to allow for optional signature implementations for user
 pub use viaduct_reqwest::ReqwestBackend;
 
 fn main() {
