@@ -35,9 +35,9 @@ fn main() {
   // here server_url and bucket_name will be set to default values
   let client = Client::create_with_collection("example-collection", None);
   
-  match client.get(expected) {
+  match client.get() {
         Ok(records) => println!("{:?}", records),
-        Err(error) => println!("Could not fetch records: {:?}", error)
+        Err(error) => println!("Error fetching/verifying records": {:?}", error)
   };
   ...
 }

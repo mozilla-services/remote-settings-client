@@ -10,9 +10,9 @@ use viaduct::{Error as ViaductError, Request};
 
 pub type KintoObject = serde_json::Value;
 
-#[derive(Deserialize)]
-struct KintoPluralResponse {
-    data: Vec<KintoObject>,
+#[derive(Deserialize, Debug)]
+struct KintoPluralResponse<T> {
+    data: Vec<T>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -20,6 +20,15 @@ pub struct ChangesetResponse {
     pub metadata: KintoObject,
     pub changes: Vec<KintoObject>,
     pub timestamp: u64,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct LatestChangeResponse {
+    pub id: String,
+    pub last_modified: u64,
+    pub bucket: String,
+    pub collection: String,
+    pub host: String,
 }
 
 #[derive(Debug)]
@@ -53,24 +62,14 @@ impl From<std::num::ParseIntError> for KintoError {
     }
 }
 
-pub fn get_records(
-    server: &str,
-    bid: &str,
-    cid: &str,
-    expected: u64,
-) -> Result<ChangesetResponse, KintoError> {
+pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result<u64, KintoError> {
     let url = format!(
-        "{}/buckets/{}/collections/{}/records?_expected={}",
-        server, bid, cid, expected
+        "{}/buckets/monitor/collections/changes/records?bucket={}&collection={}",
+        server, bid, cid
     );
-    info!("Fetch {}...", url);
 
+    info!("Fetch latest change {}...", url);
     let resp = Request::get(Url::parse(&url)?).send()?;
-    let timestamp = resp.headers.get("etag").ok_or_else(|| KintoError::Error {
-        name: "no ETag error".to_owned(),
-    })?;
-
-    debug!("Timestamp : {:?}", timestamp);
 
     let size = resp
         .headers
@@ -79,9 +78,23 @@ pub fn get_records(
             name: "no content-length header error".to_owned(),
         });
     debug!("Download {:?} bytes...", size);
-    let result: ChangesetResponse = resp.json()?;
 
-    Ok(result)
+    let latest_change: KintoPluralResponse<LatestChangeResponse> = resp.json()?;
+    
+    let last_modified = match latest_change.data.get(0) {
+        Some(change) => change.last_modified,
+        None => {
+            // bucket/collection provided is unknown
+            return Err(KintoError::Error {name: format!("Unknown collection {}/{}", bid, cid)});
+        }
+    };
+
+    debug!(
+        "collection: {}, bucket: {}, last_modified: {}",
+        cid, bid, last_modified
+    );
+
+    Ok(last_modified)
 }
 
 pub fn get_changeset(
@@ -90,6 +103,11 @@ pub fn get_changeset(
     cid: &str,
     expected: u64,
 ) -> Result<ChangesetResponse, KintoError> {
+    debug!(
+        "The expected timestamp for bucket={}, collection={} is {}",
+        bid, cid, expected
+    );
+
     let url = format!(
         "{}/buckets/{}/collections/{}/changeset?_expected={}",
         server, bid, cid, expected
@@ -99,12 +117,12 @@ pub fn get_changeset(
     let resp = Request::get(Url::parse(&url)?).send()?;
 
     info!("The response is {:?}", resp);
-    let size = resp
-        .headers
-        .get("content-length")
-        .ok_or_else(|| KintoError::Error {
-            name: "no content-length header error".to_owned(),
-        })?;
+
+    let size: i64 = match resp.headers.get("content-length").ok_or_else(|| -1) {
+        Ok(val) => val.parse()?,
+        Err(default) => default,
+    };
+
     debug!("Download {:?} bytes...", size);
 
     let result: ChangesetResponse = resp.json()?;

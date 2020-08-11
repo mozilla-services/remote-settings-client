@@ -5,7 +5,7 @@
 mod kinto_http;
 mod signatures;
 
-use kinto_http::{get_changeset, KintoError, KintoObject};
+use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject};
 use log::debug;
 pub use signatures::{SignatureError, Verification};
 
@@ -26,7 +26,9 @@ pub enum ClientError {
 
 impl From<KintoError> for ClientError {
     fn from(err: KintoError) -> Self {
-        err.into()
+        match err {
+            KintoError::Error { name } => return ClientError::Error { name: name },
+        }
     }
 }
 
@@ -160,43 +162,41 @@ impl Client {
 
     /// Fetches records for a given collection from the remote-settings server
     ///
-    /// # Parameter `expected`
-    /// - default value is 0
-    /// - used for cache busting
-    ///
     /// # Examples
     /// ```text
     /// fn main() {
-    ///   let expected: u64 = 0;
-    ///   match Client::create_with_collection("collection", None).get(expected) {
+    ///   match Client::create_with_collection("collection", None).get() {
     ///     Ok(records) => println!("{:?}", records),
-    ///     Err(error) => println!("Could not fetch records: {:?}", error)
+    ///     Err(error) => println!("Error fetching/verifying records: {:?}", error)
     ///   };
     /// }
     /// ```
     ///
     /// # Errors
     /// If an error occurs while fetching records, ```ClientError``` is returned
-    pub fn get(&self, expected: u64) -> Result<Vec<KintoObject>, ClientError> {
+    pub fn get(&self) -> Result<Vec<KintoObject>, ClientError> {
+        let expected = get_latest_change_timestamp(
+            &self.server_url,
+            &self.bucket_name,
+            &self.collection_name,
+        )?;
+
         let changeset = get_changeset(
             &self.server_url,
             &self.bucket_name,
             &self.collection_name,
-            expected,
-        )?;
+            expected
+       )?;
 
-        debug!(
-            "changeset.metadata {}",
-            serde_json::to_string_pretty(&changeset.metadata)?
-        );
+       debug!("changeset.metadata {}", serde_json::to_string_pretty(&changeset.metadata)?);
 
-        // verify the signature
-        let collection = Collection {
-            bid: self.bucket_name.to_owned(),
-            cid: self.collection_name.to_owned(),
-            metadata: changeset.metadata,
-            records: changeset.changes,
-            timestamp: changeset.timestamp,
+       // verify the signature
+       let collection = Collection {
+           bid: self.bucket_name.to_owned(),
+           cid: self.collection_name.to_owned(),
+           metadata: changeset.metadata,
+           records: changeset.changes,
+           timestamp: changeset.timestamp
         };
 
         self.verifier.verify(&collection)?;
@@ -204,142 +204,181 @@ impl Client {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::signatures::{SignatureError, Verification};
-//     use super::{Client, ClientError, Collection};
-//     use httpmock::Method::GET;
-//     use serde_json::json;
+#[cfg(test)]
+mod tests {
+    use super::signatures::{SignatureError, Verification};
+    use super::{Client, ClientError, Collection};
+    use env_logger;
+    use httpmock::Method::GET;
+    use httpmock::{Mock, MockServer};
+    use serde_json::json;
+    use viaduct::set_backend;
+    use viaduct_reqwest::ReqwestBackend;
 
-//     struct VerifierWithVerificatonError {}
-//     struct VerifierWithNoError {}
-//     struct VerifierWithInvalidSignatureError {}
+    struct VerifierWithVerificatonError {}
+    struct VerifierWithNoError {}
+    struct VerifierWithInvalidSignatureError {}
 
-//     impl Verification for VerifierWithVerificatonError {
-//         fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
-//             return Err(SignatureError::VerificationError {
-//                 name: "verification error".to_owned(),
-//             });
-//         }
-//     }
+    impl Verification for VerifierWithVerificatonError {
+        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
+            return Err(SignatureError::VerificationError {
+                name: "signature verification error".to_owned(),
+            });
+        }
+    }
 
-//     impl Verification for VerifierWithNoError {
-//         fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
-//             Ok(())
-//         }
-//     }
+    impl Verification for VerifierWithNoError {
+        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
+            Ok(())
+        }
+    }
 
-//     impl Verification for VerifierWithInvalidSignatureError {
-//         fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
-//             return Err(SignatureError::InvalidSignature {
-//                 name: "invalid signature error".to_owned(),
-//             });
-//         }
-//     }
+    impl Verification for VerifierWithInvalidSignatureError {
+        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
+            return Err(SignatureError::InvalidSignature {
+                name: "invalid signature error".to_owned(),
+            });
+        }
+    }
 
-//     fn test_get_fails_if_verification_fails_with_verification_error() {
-//         let get_changeset_mock = mock(
-//             GET,
-//             "/buckets/main/collections/url-classifier-skip-urls/changeset",
-//         )
-//         .expect_query_param("_expected", "0")
-//         .return_status(200)
-//         .return_header("Content-Type", "application/json")
-//         .return_body(
-//             r#"{
-//                 "metadata": {},
-//                 "changes": [],
-//                 "timestamp": 0
-//             }"#,
-//         )
-//         .create();
+    fn init() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        set_backend(&ReqwestBackend).unwrap();
+    }
 
-//         let actual_result = Client::create_with_server_collection(
-//             "http://localhost:5000",
-//             "url-classifier-skip-urls",
-//             Some(Box::new(VerifierWithVerificatonError {})),
-//         )
-//         .get(0);
+    fn test_get(
+        mock_server: &MockServer,
+        client: Client,
+        latest_change_response: &str,
+        records_response: &str,
+        expected_result: Result<Vec<serde_json::Value>, ClientError>,
+    ) {
+        let mut get_latest_change_mock = Mock::new()
+            .expect_method(GET)
+            .expect_path("/buckets/monitor/collections/changes/records")
+            .expect_query_param("bucket", "main")
+            .expect_query_param("collection", "url-classifier-skip-urls")
+            .return_status(200)
+            .return_header("Content-Type", "application/json")
+            .return_body(latest_change_response)
+            .create_on(&mock_server);
 
-//         let expected_result = Err(ClientError::VerificationError {
-//             name: "verification error".to_owned(),
-//         });
-//         assert_eq!(1, get_changeset_mock.times_called());
-//         assert_eq!(expected_result, actual_result);
-//     }
+        let mut get_changeset_mock = Mock::new()
+            .expect_method(GET)
+            .expect_path("/buckets/main/collections/url-classifier-skip-urls/changeset")
+            .expect_query_param("_expected", "9173")
+            .return_status(200)
+            .return_header("Content-Type", "application/json")
+            .return_body(records_response)
+            .create_on(&mock_server);
 
-//     fn test_get_passes_if_verification_passes() {
-//         let expected_version: u64 = 10;
+        let actual_result = client.get();
+        assert_eq!(1, get_latest_change_mock.times_called());
+        assert_eq!(actual_result, expected_result);
 
-//         let get_changeset_mock = mock(
-//             GET,
-//             "/buckets/main/collections/url-classifier-skip-urls/changeset",
-//         )
-//         .expect_query_param("_expected", &expected_version.to_string())
-//         .return_status(200)
-//         .return_header("Content-Type", "application/json")
-//         .return_body(
-//             r#"{
-//                 "metadata": {
-//                     "data": "test"
-//                 },
-//                 "changes": [{
-//                     "id": 1,
-//                     "last_modified": 100
-//                 }],
-//                 "timestamp": 0
-//             }"#,
-//         )
-//         .create();
+        get_changeset_mock.delete();
+        get_latest_change_mock.delete();
+    }
 
-//         let actual_result = Client::create_with_server_collection(
-//             "http://localhost:5000",
-//             "url-classifier-skip-urls",
-//             Some(Box::new(VerifierWithNoError {})),
-//         )
-//         .get(expected_version);
-//         assert_eq!(1, get_changeset_mock.times_called());
+    #[test]
+    fn test_get_verification() {
+        init();
 
-//         match actual_result {
-//             Ok(records) => assert_eq!(
-//                 vec![json!({
-//                     "id": 1,
-//                     "last_modified": 100
-//                 })],
-//                 records
-//             ),
-//             Err(error) => panic!("invalid response : {:?}", error),
-//         };
-//     }
+        let mock_server = MockServer::start();
 
-//     fn test_get_fails_if_verification_fails_with_invalid_signature_error() {
-//         let get_changeset_mock = mock(
-//             GET,
-//             "/buckets/main/collections/url-classifier-skip-urls/changeset",
-//         )
-//         .expect_query_param("_expected", "0")
-//         .return_status(200)
-//         .return_header("Content-Type", "application/json")
-//         .return_body(
-//             r#"{
-//                 "metadata": {},
-//                 "changes": [],
-//                 "timestamp": 0
-//             }"#,
-//         )
-//         .create();
+        let mock_server_address = mock_server.url("");
 
-//         let actual_result = Client::create_with_server_collection(
-//             "http://localhost:5000",
-//             "url-classifier-skip-urls",
-//             Some(Box::new(VerifierWithInvalidSignatureError {})),
-//         )
-//         .get(0);
+        let valid_latest_change_response = &format!(
+            "{}",
+            r#"{
+            "data": [
+                {
+                    "id": "123",
+                    "last_modified": 9173,
+                    "bucket":"main",
+                    "collection":"url-classifier-skip-urls",
+                    "host":"localhost:5000"
+                }
+            ]
+        }"#
+        );
 
-//         let expected_result = Err(ClientError::Error {
-//             name: "invalid signature error".to_owned(),
-//         });
-//         assert_eq!(expected_result, actual_result);
-//         assert_eq!(1, get_changeset_mock.times_called());
-//     }
-// }
+
+        test_get(
+            &mock_server,
+            Client::create_with_server_collection(
+                &mock_server_address,
+                "url-classifier-skip-urls",
+                Some(Box::new(VerifierWithVerificatonError {})),
+            ),
+            valid_latest_change_response,
+            r#"{
+            "metadata": {},
+            "changes": [],
+            "timestamp": 0
+        }"#,
+            Err(ClientError::VerificationError {
+                name: "signature verification error".to_owned(),
+            }),
+        );
+
+        test_get(
+            &mock_server,
+            Client::create_with_server_collection(
+                &mock_server_address,
+                "url-classifier-skip-urls",
+                Some(Box::new(VerifierWithNoError {})),
+            ),
+            valid_latest_change_response,
+            r#"{
+            "metadata": {
+                "data": "test"
+            },
+            "changes": [{
+                "id": 1,
+                "last_modified": 100
+            }],
+            "timestamp": 0
+        }"#,
+            Ok(vec![json!({
+                "id": 1,
+                "last_modified": 100
+            })]),
+        );
+
+        test_get(
+            &mock_server,
+            Client::create_with_server_collection(
+                &mock_server_address,
+                "url-classifier-skip-urls",
+                Some(Box::new(VerifierWithInvalidSignatureError {})),
+            ),
+            valid_latest_change_response,
+            r#"{
+            "metadata": {},
+            "changes": [],
+            "timestamp": 0
+        }"#,
+            Err(ClientError::Error {
+                name: "invalid signature error".to_owned(),
+            }),
+        );
+
+        test_get(&mock_server,Client::create_with_server_collection(
+            &mock_server_address,
+            "url-classifier-skip-urls",
+            Some(Box::new(VerifierWithNoError {})),
+        ), &format!(
+            "{}",
+            r#"{
+            "data": []
+        }"#
+        ), r#"{
+            "metadata": {
+                "data": "test"
+            },
+            "changes": [],
+            "timestamp": 0
+        }"#, Err(ClientError::Error { name: format!("Unknown collection {}/{}", "main", "url-classifier-skip-urls") }));
+    }
+}
