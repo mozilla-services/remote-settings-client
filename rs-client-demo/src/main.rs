@@ -10,6 +10,7 @@ use serde_json;
 use serde::Deserialize;
 
 struct CustomVerifier {}
+
 #[derive(Deserialize, Debug)]
 struct KintoPluralResponse<T> {
     data: Vec<T>,
