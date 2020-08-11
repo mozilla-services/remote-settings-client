@@ -167,7 +167,7 @@ impl Client {
     /// fn main() {
     ///   match Client::create_with_collection("collection", None).get() {
     ///     Ok(records) => println!("{:?}", records),
-    ///     Err(error) => println!("Could not fetch records: {:?}", error)
+    ///     Err(error) => println!("Error fetching/verifying records: {:?}", error)
     ///   };
     /// }
     /// ```
@@ -222,7 +222,7 @@ mod tests {
     impl Verification for VerifierWithVerificatonError {
         fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
             return Err(SignatureError::VerificationError {
-                name: "verification error".to_owned(),
+                name: "signature verification error".to_owned(),
             });
         }
     }
@@ -246,8 +246,6 @@ mod tests {
         set_backend(&ReqwestBackend).unwrap();
     }
 
-    const EXPECTED_VERSION: u64 = 9173;
-
     fn test_get(
         mock_server: &MockServer,
         client: Client,
@@ -268,7 +266,7 @@ mod tests {
         let mut get_changeset_mock = Mock::new()
             .expect_method(GET)
             .expect_path("/buckets/main/collections/url-classifier-skip-urls/changeset")
-            .expect_query_param("_expected", &EXPECTED_VERSION.to_string())
+            .expect_query_param("_expected", "9173")
             .return_status(200)
             .return_header("Content-Type", "application/json")
             .return_body(records_response)
@@ -291,14 +289,12 @@ mod tests {
         let mock_server_address = mock_server.url("");
 
         let valid_latest_change_response = &format!(
-            "{}{}{}",
+            "{}",
             r#"{
             "data": [
                 {
                     "id": "123",
-                    "last_modified": "#,
-            EXPECTED_VERSION,
-            r#",
+                    "last_modified": 9173,
                     "bucket":"main",
                     "collection":"url-classifier-skip-urls",
                     "host":"localhost:5000"
@@ -307,12 +303,6 @@ mod tests {
         }"#
         );
 
-        let invalid_latest_change_response = &format!(
-            "{}",
-            r#"{
-            "data": []
-        }"#
-        );
 
         test_get(
             &mock_server,
@@ -328,7 +318,7 @@ mod tests {
             "timestamp": 0
         }"#,
             Err(ClientError::VerificationError {
-                name: "verification error".to_owned(),
+                name: "signature verification error".to_owned(),
             }),
         );
 
@@ -378,15 +368,17 @@ mod tests {
             &mock_server_address,
             "url-classifier-skip-urls",
             Some(Box::new(VerifierWithNoError {})),
-        ), invalid_latest_change_response, r#"{
+        ), &format!(
+            "{}",
+            r#"{
+            "data": []
+        }"#
+        ), r#"{
             "metadata": {
                 "data": "test"
             },
-            "changes": [{
-                "id": 1,
-                "last_modified": 100
-            }],
+            "changes": [],
             "timestamp": 0
-        }"#, Err(ClientError::Error {name: format!("404 - unknown bucket/collection name provided: bucket_name={}, collection_name{}", "main", "url-classifier-skip-urls")}));
+        }"#, Err(ClientError::Error { name: format!("Unknown collection {}/{}", "main", "url-classifier-skip-urls") }));
     }
 }

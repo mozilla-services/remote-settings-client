@@ -85,7 +85,7 @@ pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result
         Some(change) => change.last_modified,
         None => {
             // bucket/collection provided is unknown
-            return Err(KintoError::Error {name: format!("404 - unknown bucket/collection name provided: bucket_name={}, collection_name{}", bid, cid)});
+            return Err(KintoError::Error {name: format!("Unknown collection {}/{}", bid, cid)});
         }
     };
 

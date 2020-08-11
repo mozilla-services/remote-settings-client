@@ -37,7 +37,7 @@ fn main() {
   
   match client.get() {
         Ok(records) => println!("{:?}", records),
-        Err(error) => println!("Could not fetch records: {:?}", error)
+        Err(error) => println!("Error fetching/verifying records": {:?}", error)
   };
   ...
 }
