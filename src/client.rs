@@ -4,16 +4,21 @@
 
 mod kinto_http;
 mod signatures;
+mod storage;
 
-use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject};
+use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject, ChangesetResponse};
 use log::debug;
+use serde_json::json;
 pub use signatures::{SignatureError, Verification};
+pub use storage::{RemoteStorage, RemoteStorageError};
 
 #[cfg(feature = "openssl_verifier")]
 use crate::client::signatures::openssl_verifier::OpenSSLVerifier as AlwaysAcceptsVerifier;
 
 #[cfg(not(feature = "openssl_verifier"))]
 use crate::client::signatures::default_verifier::DefaultVerifier as AlwaysAcceptsVerifier;
+
+use crate::client::storage::default_cache::DefaultCache as DefaultCache;
 
 pub const DEFAULT_SERVER_URL: &str = "https://firefox.settings.services.mozilla.com/v1";
 pub const DEFAULT_BUCKET_NAME: &str = "main";
@@ -29,6 +34,12 @@ impl From<KintoError> for ClientError {
         match err {
             KintoError::Error { name } => return ClientError::Error { name: name },
         }
+    }
+}
+
+impl From<RemoteStorageError> for ClientError {
+    fn from(err: RemoteStorageError) -> Self {
+        err.into()
     }
 }
 
@@ -91,6 +102,7 @@ pub struct Client {
     bucket_name: String,
     collection_name: String,
     verifier: Box<dyn Verification>,
+    cache: Box<dyn RemoteStorage>,
 }
 
 impl Default for Client {
@@ -100,6 +112,7 @@ impl Default for Client {
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
             verifier: Box::new(AlwaysAcceptsVerifier{}),
+            cache: Box::new(DefaultCache{}),
         };
     }
 }
@@ -157,6 +170,48 @@ impl Client {
             bucket_name: bucket_name.to_owned(),
             collection_name: collection_name.to_owned(),
             verifier: verifier.unwrap_or_else(|| Box::new(AlwaysAcceptsVerifier{})),
+            cache: Box::new(DefaultCache{}),
+        };
+    }
+
+    fn fetch_records_with_verification(&self) -> Result<Vec<KintoObject>, ClientError> {
+
+        let remote_timestamp = self.get_latest_collection_timestamp()?;
+
+        let changeset_response = get_changeset(
+            &self.server_url,
+            &self.bucket_name,
+            &self.collection_name,
+            remote_timestamp,
+        )?;
+
+        debug!("changeset.metadata {}", serde_json::to_string_pretty(&changeset_response.metadata)?);
+
+        let collection: Collection = self.create_collection_from_response(changeset_response);
+        self.verifier.verify(&collection)?;
+
+        // before returning records, we want to override it into the cache
+        self.cache.store(&format!("{}/{}", collection.bid, collection.cid), json!(collection.records))?;
+        Ok(collection.records)
+    }
+
+    fn get_latest_collection_timestamp(&self) -> Result<u64, ClientError> {
+        let expected = get_latest_change_timestamp(
+            &self.server_url,
+            &self.bucket_name,
+            &self.collection_name,
+        )?;
+        
+        Ok(expected)
+    }
+
+    fn create_collection_from_response(&self, change_set_response: ChangesetResponse) -> Collection {
+        return Collection {
+            bid: self.bucket_name.to_owned(),
+            cid: self.collection_name.to_owned(),
+            metadata: change_set_response.metadata,
+            records: change_set_response.changes,
+            timestamp: change_set_response.timestamp
         };
     }
 
@@ -175,32 +230,45 @@ impl Client {
     /// # Errors
     /// If an error occurs while fetching records, ```ClientError``` is returned
     pub fn get(&self) -> Result<Vec<KintoObject>, ClientError> {
-        let expected = get_latest_change_timestamp(
-            &self.server_url,
-            &self.bucket_name,
-            &self.collection_name,
-        )?;
 
-        let changeset = get_changeset(
-            &self.server_url,
-            &self.bucket_name,
-            &self.collection_name,
-            expected
-       )?;
+        // If storage is empty for this bucket/collection, fetch from .../changeset, validate signature, store locally, and return records
+        // Otherwise, obtain current remote timestamp of collection from server (done in #26)
+        // If remote timestamp is different than local, fetch, validate signature, overwrite local existing data and return records
+        // If remote timestamp is same as local, validate signature and return records. If validating signature fails, fetch, validate, overwrite, and return records.
 
-       debug!("changeset.metadata {}", serde_json::to_string_pretty(&changeset.metadata)?);
+        let key = format!("{}/{}", self.bucket_name, self.collection_name);
+        match self.cache.retrieve(&key) {
+            Ok(value) => {
+                // convert JSON object to LatestChangeResponse object
+                let cached_change_response: ChangesetResponse = serde_json::from_value(value)?;
+                
+                let remote_timestamp = self.get_latest_collection_timestamp()?;
+                
+                if remote_timestamp != cached_change_response.timestamp {
+                    // fetch records, validate signature, overwrite local existing data and return records
+                    let records = self.fetch_records_with_verification()?;
+                    return Ok(records)
+                }
 
-       // verify the signature
-       let collection = Collection {
-           bid: self.bucket_name.to_owned(),
-           cid: self.collection_name.to_owned(),
-           metadata: changeset.metadata,
-           records: changeset.changes,
-           timestamp: changeset.timestamp
-        };
+                // otherwise just validate signature and return records but if valdiation fails, then fetch, validate, overwrite and return records
+                let collection = self.create_collection_from_response(cached_change_response);
+                let records = match self.verifier.verify(&collection) {
+                    Ok(()) => collection.records,
+                    Err(_err) => {
+                        let records = self.fetch_records_with_verification()?;
+                        records
+                    },
+                };
 
-        self.verifier.verify(&collection)?;
-        Ok(collection.records)
+                return Ok(records)
+            },
+            Err(err) => {
+                debug!("error - {:?} : accessing key={} from cache - fetching records from server", err, key);
+                
+                let records = self.fetch_records_with_verification()?;
+                return Ok(records)
+            }
+        }
     }
 }
 

@@ -63,6 +63,7 @@ impl From<std::num::ParseIntError> for KintoError {
 }
 
 pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result<u64, KintoError> {
+
     let url = format!(
         "{}/buckets/monitor/collections/changes/records?bucket={}&collection={}",
         server, bid, cid
