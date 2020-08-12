@@ -213,6 +213,53 @@ impl Client {
         Ok(expected)
     }
 
+    /// Create a Client from a server url, bucket name, collection name and with an optional custom verifier
+    pub fn create_with_server_bucket_collection(
+        server_url: &str,
+        bucket_name: &str,
+        collection_name: &str,
+        verifier: Option<Box<dyn Verification>>,
+    ) -> Self {
+        return Client {
+            server_url: server_url.to_owned(),
+            bucket_name: bucket_name.to_owned(),
+            collection_name: collection_name.to_owned(),
+            verifier: verifier.unwrap_or_else(|| Box::new(AlwaysAcceptsVerifier{})),
+            cache: Box::new(DefaultCache{}),
+        };
+    }
+
+    fn fetch_records_with_verification(&self) -> Result<Vec<KintoObject>, ClientError> {
+
+        let remote_timestamp = self.get_latest_collection_timestamp()?;
+
+        let changeset_response = get_changeset(
+            &self.server_url,
+            &self.bucket_name,
+            &self.collection_name,
+            remote_timestamp,
+        )?;
+
+        debug!("changeset.metadata {}", serde_json::to_string_pretty(&changeset_response.metadata)?);
+
+        let collection: Collection = self.create_collection_from_response(changeset_response);
+        self.verifier.verify(&collection)?;
+
+        // before returning records, we want to override it into the cache
+        self.cache.store(&format!("{}/{}", collection.bid, collection.cid), json!(collection.records))?;
+        Ok(collection.records)
+    }
+
+    fn get_latest_collection_timestamp(&self) -> Result<u64, ClientError> {
+        let expected = get_latest_change_timestamp(
+            &self.server_url,
+            &self.bucket_name,
+            &self.collection_name,
+        )?;
+        
+        Ok(expected)
+    }
+
     fn create_collection_from_response(&self, change_set_response: ChangesetResponse) -> Collection {
         return Collection {
             bid: self.bucket_name.to_owned(),
