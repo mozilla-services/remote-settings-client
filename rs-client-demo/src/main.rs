@@ -43,7 +43,7 @@ fn main() {
 
     println!("Fetching records using RS client with default Verifier");
 
-    let client = Client::create_with_collection("url-classifier-skip-urls", None);
+    let client = Client::builder().collection_name("url-classifier-skip-urls").build();
 
     match client.get() {
         Ok(records) => {
@@ -60,7 +60,7 @@ fn main() {
 
     for collection in &collections.data {
         
-        let client = Client::create_with_bucket_collection(&collection.bucket, &collection.collection, None);
+        let client = Client::builder().bucket_name(&collection.bucket).collection_name(&collection.collection).build();
 
         println!("Fetching records");
 
@@ -78,10 +78,10 @@ fn main() {
     println!("The failed collections are {:?}", failed_fetch);
 
     println!("Fetching records using RS client with custom Verifier");
-    let client_with_custom_verifier = Client::create_with_collection(
-        "url-classifier-skip-urls",
-        Some(Box::new(CustomVerifier {})),
-    );
+    let client_with_custom_verifier = Client::builder()
+        .collection_name("url-classifier-skip-urls")
+        .verifier(Box::new(CustomVerifier {}))
+        .build();
 
     match client_with_custom_verifier.get() {
         Ok(records) => print_records(&records),
