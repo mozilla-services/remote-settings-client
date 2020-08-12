@@ -315,10 +315,10 @@ mod tests {
         test_get(
             &mock_server,
             Client::builder()
-            .server_url(&mock_server_address)
-            .collection_name("url-classifier-skip-urls")
-            .verifier(Box::new(VerifierWithVerificatonError {}))
-            .build(),
+                .server_url(&mock_server_address)
+                .collection_name("url-classifier-skip-urls")
+                .verifier(Box::new(VerifierWithVerificatonError {}))
+                .build(),
             valid_latest_change_response,
             r#"{
             "metadata": {},
