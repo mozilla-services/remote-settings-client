@@ -59,6 +59,62 @@ pub struct Collection {
     pub timestamp: u64,
 }
 
+pub struct ClientBuilder {
+    server_url: String,
+    bucket_name: String,
+    collection_name: String,
+    verifier: Box<dyn Verification>,
+}
+
+impl ClientBuilder {
+
+    /// Constructs a new `ClientBuilder`.
+    ///
+    /// This is the same as `Client::builder()`.
+    pub fn new() -> ClientBuilder {
+        return ClientBuilder {
+            server_url: DEFAULT_SERVER_URL.to_owned(),
+            bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
+            collection_name: "".to_owned(),
+            verifier: Box::new(AlwaysAcceptsVerifier{}),
+        };
+    }
+
+    /// Add custom server url to Client
+    pub fn server_url(mut self, server_url: &str) -> ClientBuilder {
+        self.server_url = server_url.to_owned();
+        self
+    }
+
+    /// Add custom bucket name to Client
+    pub fn bucket_name(mut self, bucket_name: &str) -> ClientBuilder {
+        self.bucket_name = bucket_name.to_owned();
+        self
+    }
+
+    /// Add custom collection name to Client
+    pub fn collection_name(mut self, collection_name: &str) -> ClientBuilder {
+        self.collection_name = collection_name.to_owned();
+        self
+    }
+
+    /// Add custom signature verifier to Client
+    pub fn verifier(mut self, verifier: Box<dyn Verification>) -> ClientBuilder {
+        self.verifier = verifier;
+        self
+    }
+
+    /// Build Client from ClientBuilder
+    pub fn build(self) -> Client {
+        Client {
+            server_url: self.server_url,
+            bucket_name: self.bucket_name,
+            collection_name: self.collection_name,
+            verifier: self.verifier
+        }
+    }
+}
+
 /// Handles requests to Remote-Settings
 /// # Examples
 /// Create Client with collection_name and without custom Verifier
@@ -66,7 +122,7 @@ pub struct Collection {
 /// # use remote_settings_client::{SignatureError, Verification};
 /// # use remote_settings_client::{Client, Collection};
 /// # fn main() {
-///   let client = Client::create_with_collection("collection_name", None);
+///   let client = Client::builder().collection_name("collection_name").build();
 /// # }
 /// ```
 ///
@@ -83,7 +139,7 @@ pub struct Collection {
 /// }
 ///
 /// # fn main() {
-///   let client = Client::create_with_collection("collection_name", Some(Box::new(CustomVerifier{})));
+///   let client = Client::builder().collection_name("collection_name").verifier(Box::new(CustomVerifier{})).build();
 /// # }
 /// ```
 pub struct Client {
@@ -106,58 +162,11 @@ impl Default for Client {
 
 impl Client {
 
-    pub fn create_with_collection(
-        collection_name: &str,
-        verifier: Option<Box<dyn Verification>>,
-    ) -> Self {
-        return Client {
-            collection_name: collection_name.to_owned(),
-            verifier: verifier.unwrap_or_else(|| Box::new(AlwaysAcceptsVerifier{})),
-            ..Default::default()
-        };
-    }
-
-    /// Create a Client from a bucket name, collection name and with an optional custom verifier
-    pub fn create_with_bucket_collection(
-        bucket_name: &str,
-        collection_name: &str,
-        verifier: Option<Box<dyn Verification>>,
-    ) -> Self {
-        return Client {
-            bucket_name: bucket_name.to_owned(),
-            collection_name: collection_name.to_owned(),
-            verifier: verifier.unwrap_or_else(|| Box::new(AlwaysAcceptsVerifier{})),
-            ..Default::default()
-        };
-    }
-
-    /// Create a Client from a server url, collection name and with an optional custom verifier
-    pub fn create_with_server_collection(
-        server_url: &str,
-        collection_name: &str,
-        verifier: Option<Box<dyn Verification>>,
-    ) -> Self {
-        return Client {
-            server_url: server_url.to_owned(),
-            collection_name: collection_name.to_owned(),
-            verifier: verifier.unwrap_or_else(|| Box::new(AlwaysAcceptsVerifier{})),
-            ..Default::default()
-        };
-    }
-
-    /// Create a Client from a server url, bucket name, collection name and with an optional custom verifier
-    pub fn create_with_server_bucket_collection(
-        server_url: &str,
-        bucket_name: &str,
-        collection_name: &str,
-        verifier: Option<Box<dyn Verification>>,
-    ) -> Self {
-        return Client {
-            server_url: server_url.to_owned(),
-            bucket_name: bucket_name.to_owned(),
-            collection_name: collection_name.to_owned(),
-            verifier: verifier.unwrap_or_else(|| Box::new(AlwaysAcceptsVerifier{})),
-        };
+    /// Creates a `ClientBuilder` to configure a `Client`.
+    ///
+    /// This is the same as `ClientBuilder::new()`.
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::new()
     }
 
     /// Fetches records for a given collection from the remote-settings server
@@ -303,14 +312,13 @@ mod tests {
         }"#
         );
 
-
         test_get(
             &mock_server,
-            Client::create_with_server_collection(
-                &mock_server_address,
-                "url-classifier-skip-urls",
-                Some(Box::new(VerifierWithVerificatonError {})),
-            ),
+            Client::builder()
+            .server_url(&mock_server_address)
+            .collection_name("url-classifier-skip-urls")
+            .verifier(Box::new(VerifierWithVerificatonError {}))
+            .build(),
             valid_latest_change_response,
             r#"{
             "metadata": {},
@@ -324,11 +332,11 @@ mod tests {
 
         test_get(
             &mock_server,
-            Client::create_with_server_collection(
-                &mock_server_address,
-                "url-classifier-skip-urls",
-                Some(Box::new(VerifierWithNoError {})),
-            ),
+            Client::builder()
+                .server_url(&mock_server_address)
+                .collection_name("url-classifier-skip-urls")
+                .verifier(Box::new(VerifierWithNoError {}))
+                .build(),
             valid_latest_change_response,
             r#"{
             "metadata": {
@@ -348,11 +356,11 @@ mod tests {
 
         test_get(
             &mock_server,
-            Client::create_with_server_collection(
-                &mock_server_address,
-                "url-classifier-skip-urls",
-                Some(Box::new(VerifierWithInvalidSignatureError {})),
-            ),
+            Client::builder()
+                .server_url(&mock_server_address)
+                .collection_name("url-classifier-skip-urls")
+                .verifier(Box::new(VerifierWithInvalidSignatureError {}))
+                .build(),
             valid_latest_change_response,
             r#"{
             "metadata": {},
@@ -364,11 +372,11 @@ mod tests {
             }),
         );
 
-        test_get(&mock_server,Client::create_with_server_collection(
-            &mock_server_address,
-            "url-classifier-skip-urls",
-            Some(Box::new(VerifierWithNoError {})),
-        ), &format!(
+        test_get(&mock_server,Client::builder()
+            .server_url(&mock_server_address)
+            .collection_name("url-classifier-skip-urls")
+            .verifier(Box::new(VerifierWithNoError {}))
+            .build(), &format!(
             "{}",
             r#"{
             "data": []
