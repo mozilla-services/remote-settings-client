@@ -12,9 +12,11 @@ pub mod default_cache;
 /// struct MyStore {}
 ///
 /// impl RemoteStorage for MyStore {
-///     fn store(&self, record: serde_json::Value) -> Result<(), RemoteStorageError> {
+///     fn store(&self, key: &str, record: serde_json::Value) -> Result<(), RemoteStorageError> {
 ///         Ok(())
 ///     }
+/// 
+///     fn retrieve(&self, key: &str, )
 /// }
 /// ```
 pub trait RemoteStorage {
@@ -24,13 +26,12 @@ pub trait RemoteStorage {
     ///
     /// # Errors
     /// If an error occurs while storing or retrieving, ```RemoteStorageError``` is returned
-    fn store(&self, key: &str, value: serde_json::Value) -> Result<(), RemoteStorageError>;
-
+    fn store(&self, key: &str, value: &str) -> Result<(), RemoteStorageError>;
 
     /// Retrieve value mapping to the key
     /// 
     /// If key cannot be 
-    fn retrieve(&self, key:&str) -> Result<serde_json::Value, RemoteStorageError>;
+    fn retrieve(&self, key: &str) -> Result<String, RemoteStorageError>;
 }
 
 #[derive(Debug, PartialEq)]

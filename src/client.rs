@@ -8,7 +8,7 @@ mod storage;
 
 use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject, ChangesetResponse};
 use log::debug;
-use serde_json::json;
+use serde::Serialize;
 pub use signatures::{SignatureError, Verification};
 pub use storage::{RemoteStorage, RemoteStorageError};
 
@@ -61,7 +61,7 @@ impl From<SignatureError> for ClientError {
 }
 
 /// Response body from remote-settings server
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Serialize)]
 pub struct Collection {
     pub bid: String,
     pub cid: String,
@@ -75,6 +75,7 @@ pub struct ClientBuilder {
     bucket_name: String,
     collection_name: String,
     verifier: Box<dyn Verification>,
+    cache: Box<dyn RemoteStorage>,
 }
 
 impl ClientBuilder {
@@ -88,6 +89,7 @@ impl ClientBuilder {
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
             verifier: Box::new(AlwaysAcceptsVerifier{}),
+            cache: Box::new(DefaultCache {}),
         };
     }
 
@@ -115,13 +117,20 @@ impl ClientBuilder {
         self
     }
 
+    /// Add custom cache storage implementation to Client
+    pub fn cache(mut self, cache: Box<dyn RemoteStorage>) -> ClientBuilder {
+        self.cache = cache;
+        self
+    }
+
     /// Build Client from ClientBuilder
     pub fn build(self) -> Client {
         Client {
             server_url: self.server_url,
             bucket_name: self.bucket_name,
             collection_name: self.collection_name,
-            verifier: self.verifier
+            verifier: self.verifier,
+            cache: self.cache
         }
     }
 }
@@ -161,18 +170,6 @@ pub struct Client {
     cache: Box<dyn RemoteStorage>,
 }
 
-impl Default for Client {
-    fn default() -> Self {
-        return Client {
-            server_url: DEFAULT_SERVER_URL.to_owned(),
-            bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
-            collection_name: "".to_owned(),
-            verifier: Box::new(AlwaysAcceptsVerifier{}),
-            cache: Box::new(DefaultCache{}),
-        };
-    }
-}
-
 impl Client {
 
     /// Creates a `ClientBuilder` to configure a `Client`.
@@ -198,55 +195,10 @@ impl Client {
         let collection: Collection = self.create_collection_from_response(changeset_response);
         self.verifier.verify(&collection)?;
 
-        // before returning records, we want to override it into the cache
-        self.cache.store(&format!("{}/{}", collection.bid, collection.cid), json!(collection.records))?;
-        Ok(collection.records)
-    }
-
-    fn get_latest_collection_timestamp(&self) -> Result<u64, ClientError> {
-        let expected = get_latest_change_timestamp(
-            &self.server_url,
-            &self.bucket_name,
-            &self.collection_name,
-        )?;
-        
-        Ok(expected)
-    }
-
-    /// Create a Client from a server url, bucket name, collection name and with an optional custom verifier
-    pub fn create_with_server_bucket_collection(
-        server_url: &str,
-        bucket_name: &str,
-        collection_name: &str,
-        verifier: Option<Box<dyn Verification>>,
-    ) -> Self {
-        return Client {
-            server_url: server_url.to_owned(),
-            bucket_name: bucket_name.to_owned(),
-            collection_name: collection_name.to_owned(),
-            verifier: verifier.unwrap_or_else(|| Box::new(AlwaysAcceptsVerifier{})),
-            cache: Box::new(DefaultCache{}),
-        };
-    }
-
-    fn fetch_records_with_verification(&self) -> Result<Vec<KintoObject>, ClientError> {
-
-        let remote_timestamp = self.get_latest_collection_timestamp()?;
-
-        let changeset_response = get_changeset(
-            &self.server_url,
-            &self.bucket_name,
-            &self.collection_name,
-            remote_timestamp,
-        )?;
-
-        debug!("changeset.metadata {}", serde_json::to_string_pretty(&changeset_response.metadata)?);
-
-        let collection: Collection = self.create_collection_from_response(changeset_response);
-        self.verifier.verify(&collection)?;
+        let collection_str = serde_json::to_string(&collection)?;
 
         // before returning records, we want to override it into the cache
-        self.cache.store(&format!("{}/{}", collection.bid, collection.cid), json!(collection.records))?;
+        self.cache.store(&format!("{}/{}", collection.bid, collection.cid), &collection_str)?;
         Ok(collection.records)
     }
 
@@ -292,10 +244,11 @@ impl Client {
         // If remote timestamp is same as local, validate signature and return records. If validating signature fails, fetch, validate, overwrite, and return records.
 
         let key = format!("{}/{}", self.bucket_name, self.collection_name);
+        debug!("Hey get key={}", key);
         match self.cache.retrieve(&key) {
             Ok(value) => {
-                // convert JSON object to LatestChangeResponse object
-                let cached_change_response: ChangesetResponse = serde_json::from_value(value)?;
+                // convert JSON object to ChangesetResponse object
+                let cached_change_response: ChangesetResponse = serde_json::from_str(&value)?;
                 
                 let remote_timestamp = self.get_latest_collection_timestamp()?;
                 
@@ -330,17 +283,38 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::signatures::{SignatureError, Verification};
-    use super::{Client, ClientError, Collection};
+    use super::{Client, ClientError, Collection, RemoteStorage, RemoteStorageError};
     use env_logger;
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
     use serde_json::json;
     use viaduct::set_backend;
+    use log::debug;
     use viaduct_reqwest::ReqwestBackend;
+    use std::collections::HashMap as HashMap;
 
     struct VerifierWithVerificatonError {}
     struct VerifierWithNoError {}
     struct VerifierWithInvalidSignatureError {}
+
+    pub struct MockCache<'a> {
+        map: HashMap<&'a str, &'a str>,
+    }
+
+    impl<'a> RemoteStorage for MockCache<'a> {
+
+        fn store(&self, key: &str, value: &str) -> Result<(), RemoteStorageError> {
+            self.map.insert(key, value);
+            Ok(())
+        }
+
+        fn retrieve(&self, key: &str) -> Result<String, RemoteStorageError> {
+            match self.map.get_key_value(&key) {
+                Some(val) => Ok(val.to_owned()),
+                None => Err(RemoteStorageError::DoesNotExistError { name: "key does not exist".to_owned() })
+            }
+        }
+    }
 
     impl Verification for VerifierWithVerificatonError {
         fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
@@ -397,6 +371,7 @@ mod tests {
 
         let actual_result = client.get();
         assert_eq!(1, get_latest_change_mock.times_called());
+        debug!("verify actual_result:{:?}, expected_result:{:?}", actual_result, expected_result);
         assert_eq!(actual_result, expected_result);
 
         get_changeset_mock.delete();
@@ -432,6 +407,7 @@ mod tests {
                 .server_url(&mock_server_address)
                 .collection_name("url-classifier-skip-urls")
                 .verifier(Box::new(VerifierWithVerificatonError {}))
+                .cache(Box::new(MockCache { map: HashMap::new() }))
                 .build(),
             valid_latest_change_response,
             r#"{

@@ -2,44 +2,37 @@
 use {
     super::{RemoteStorageError, RemoteStorage},
     log::{debug, info},
-    serde_json::Value,
     std::path::Path,
     std::io::prelude::*,
-    std::fs::OpenOptions,
+    std::fs::{OpenOptions, remove_file},
 };
 
 pub struct DefaultCache {}
 
 impl RemoteStorage for DefaultCache {
-    fn store(&self, key: &str, value: Value) -> Result<(), RemoteStorageError> {
+    fn store(&self, key: &str, value: &str) -> Result<(), RemoteStorageError> {
         debug!("default cache store key={},value={}", key, value);
 
-        let file_name = &format!("{}.txt", key);
+        let file_name = &format!("{}.bin", key);
         let path = Path::new(file_name);
         let display = path.display();
 
-        // Open the path in read-only mode, returns `io::Result<File>`
-        match OpenOptions::new().write(true).create(true).append(false).open(path) {
+        match OpenOptions::new().write(true).create(true).open(path) {
             Err(why) => {
                 info!("couldn't open or create {}: {}", display, why);
                 return Err(RemoteStorageError::Error { name: why.to_string() })
             }
             Ok(mut file) => {
-                let content = match value.as_str() {
-                    Some(val) => val.as_bytes(),
-                    None => "".as_bytes(),
-                };
-
-                file.write_all(content)?;
+                file.write_all(value.as_bytes())?;
                 return Ok(())
             },
         };
     }
 
-    fn retrieve(&self, key: &str) -> Result<Value, RemoteStorageError> {
+    fn retrieve(&self, key: &str) -> Result<String, RemoteStorageError> {
         debug!("default cache retrieve key={}", key);
 
-        let file_name = &format!("{}.txt", key);
+        let file_name = &format!("{}.bin", key);
         let path = Path::new(file_name);
 
         let display = path.display();
@@ -52,7 +45,6 @@ impl RemoteStorage for DefaultCache {
             Ok(file) => file,
         };
 
-        // Read the file contents into a string, returns `io::Result<usize>`
         let mut s = String::new();
         match file.read_to_string(&mut s) {
             Err(why) => {
@@ -62,7 +54,64 @@ impl RemoteStorage for DefaultCache {
             Ok(_) => info!("{} contains:\n{}", display, s),
         };
 
-        let value = serde_json::from_str(&s)?;
-        Ok(value)
+        Ok(s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DefaultCache, RemoteStorage, RemoteStorageError};
+    use env_logger;
+    use std::fs::remove_file;
+    
+    fn init() {
+        let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    fn cleanup(file_path: &str) {
+        remove_file(&file_path).unwrap();
+    }
+
+    #[test]
+    fn test_store_key_value_with_no_file_present() {
+        init();
+        
+        let default_cache = DefaultCache {};
+
+        const VALUE: &str = "records";
+        // store key, value pair into the cache
+        default_cache.store("test", VALUE).unwrap();
+
+        let value = default_cache.retrieve("test").unwrap();
+
+        assert_eq!(value, VALUE);
+        cleanup("test.bin");
+    }
+
+    #[test]
+    fn test_store_overwrite_file() {
+        init();
+        
+        let default_cache = DefaultCache {};
+
+        const VALUE: &str = "records";
+        // store key, value pair into the cache
+        default_cache.store("test", VALUE).unwrap();
+
+        default_cache.store("test", "new-records").unwrap();
+
+        let value = default_cache.retrieve("test").unwrap();
+
+        assert_eq!(value, "new-records");
+        cleanup("test.bin");
+    }
+
+    #[test]
+    fn test_retrieve_cannot_find_file() {
+        init();
+        
+        let default_cache = DefaultCache {};
+
+        assert!(default_cache.retrieve("test").is_err());
     }
 }

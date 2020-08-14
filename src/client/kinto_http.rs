@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use log::{debug, info};
-use serde::Deserialize;
+use serde::{Serialize, Deserialize};
 use serde_json;
 use url::{ParseError, Url};
 use viaduct::{Error as ViaductError, Request};
@@ -15,7 +15,7 @@ struct KintoPluralResponse<T> {
     data: Vec<T>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChangesetResponse {
     pub metadata: KintoObject,
     pub changes: Vec<KintoObject>,
