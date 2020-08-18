@@ -23,7 +23,7 @@ use log::debug;
 /// struct SignatureVerifier {}
 ///
 /// impl Verification for SignatureVerifier {
-///     fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
+///     fn verify(&mut self, collection: &Collection) -> Result<(), SignatureError> {
 ///         Ok(())
 ///     }
 /// }
@@ -38,7 +38,7 @@ pub trait Verification {
     ///
     /// If Signature does not match ```SignatureError::VerificationError``` is returned
     ///
-    fn verify(&self, collection: &Collection) -> Result<(), SignatureError>;
+    fn verify(&mut self, collection: &Collection) -> Result<(), SignatureError>;
 }
 
 #[derive(Debug, PartialEq)]

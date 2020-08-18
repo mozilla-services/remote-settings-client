@@ -27,7 +27,7 @@ jobs:
           key: v4-cargo-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
       - run:
           name: Run remote-settings tests
-          command: cargo test --all
+          command: cargo test -- --test-threads=1
       - run:
           name: Run canonical_json tests
           command: cd src/client/signatures/canonical_json/src; cargo test

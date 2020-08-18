@@ -6,7 +6,7 @@ use {
 pub struct DefaultVerifier {}
 
 impl Verification for DefaultVerifier {
-    fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
+    fn verify(&mut self, _collection: &Collection) -> Result<(), SignatureError> {
         debug!("default verifier implementation");
         Ok(())
     }

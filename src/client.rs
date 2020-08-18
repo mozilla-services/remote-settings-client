@@ -49,6 +49,12 @@ impl From<serde_json::error::Error> for ClientError {
     }
 }
 
+impl From<std::string::FromUtf8Error> for ClientError {
+    fn from(err: std::string::FromUtf8Error) -> Self {
+        err.into()
+    }
+}
+
 impl From<SignatureError> for ClientError {
     fn from(err: SignatureError) -> Self {
         match err {
@@ -61,13 +67,24 @@ impl From<SignatureError> for ClientError {
 }
 
 /// Response body from remote-settings server
-#[derive(Debug, PartialEq, Serialize)]
+#[derive(Debug, PartialEq, Serialize, Clone)]
 pub struct Collection {
     pub bid: String,
     pub cid: String,
     pub metadata: KintoObject,
     pub records: Vec<KintoObject>,
     pub timestamp: u64,
+}
+
+impl From<Collection> for Vec<u8> {
+    fn from(collection: Collection) -> Self {
+        match serde_json::to_string(&collection) {
+            Ok(val) => return val.into_bytes(),
+            Err(_err) => {
+                return "".into()
+            },
+        }
+    }
 }
 
 pub struct ClientBuilder {
@@ -153,7 +170,7 @@ impl ClientBuilder {
 /// struct CustomVerifier{}
 ///
 /// impl Verification for CustomVerifier {
-///    fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
+///    fn verify(&mut self, collection: &Collection) -> Result<(), SignatureError> {
 ///        Ok(()) // everything is verified!
 ///    }
 /// }
@@ -179,9 +196,7 @@ impl Client {
         ClientBuilder::new()
     }
 
-    fn fetch_records_with_verification(&self) -> Result<Vec<KintoObject>, ClientError> {
-
-        let remote_timestamp = self.get_latest_collection_timestamp()?;
+    fn fetch_records_and_verify(&mut self, remote_timestamp: u64) -> Result<Collection, ClientError> {
 
         let changeset_response = get_changeset(
             &self.server_url,
@@ -195,14 +210,10 @@ impl Client {
         let collection: Collection = self.create_collection_from_response(changeset_response);
         self.verifier.verify(&collection)?;
 
-        let collection_str = serde_json::to_string(&collection)?;
-
-        // before returning records, we want to override it into the cache
-        self.cache.store(&format!("{}/{}", collection.bid, collection.cid), &collection_str)?;
-        Ok(collection.records)
+        Ok(collection)
     }
 
-    fn get_latest_collection_timestamp(&self) -> Result<u64, ClientError> {
+    fn get_latest_collection_timestamp(&mut self) -> Result<u64, ClientError> {
         let expected = get_latest_change_timestamp(
             &self.server_url,
             &self.bucket_name,
@@ -212,7 +223,7 @@ impl Client {
         Ok(expected)
     }
 
-    fn create_collection_from_response(&self, change_set_response: ChangesetResponse) -> Collection {
+    fn create_collection_from_response(&mut self, change_set_response: ChangesetResponse) -> Collection {
         return Collection {
             bid: self.bucket_name.to_owned(),
             cid: self.collection_name.to_owned(),
@@ -236,26 +247,35 @@ impl Client {
     ///
     /// # Errors
     /// If an error occurs while fetching records, ```ClientError``` is returned
-    pub fn get(&self) -> Result<Vec<KintoObject>, ClientError> {
+    pub fn get(&mut self) -> Result<Vec<KintoObject>, ClientError> {
 
         // If storage is empty for this bucket/collection, fetch from .../changeset, validate signature, store locally, and return records
         // Otherwise, obtain current remote timestamp of collection from server (done in #26)
         // If remote timestamp is different than local, fetch, validate signature, overwrite local existing data and return records
         // If remote timestamp is same as local, validate signature and return records. If validating signature fails, fetch, validate, overwrite, and return records.
 
-        let key = format!("{}/{}", self.bucket_name, self.collection_name);
-        debug!("Hey get key={}", key);
-        match self.cache.retrieve(&key) {
+        let remote_timestamp = self.get_latest_collection_timestamp()?;
+        let key = format!("{}-{}:records", self.bucket_name, self.collection_name).as_bytes().to_vec();
+        debug!("get key={:?}", String::from_utf8(key.clone()).unwrap());
+    
+        match self.cache.retrieve(key.clone()) {
             Ok(value) => {
+                let value_str = String::from_utf8(value.to_vec())?;
                 // convert JSON object to ChangesetResponse object
-                let cached_change_response: ChangesetResponse = serde_json::from_str(&value)?;
+                let cached_change_response: ChangesetResponse = serde_json::from_str(&value_str)?;
                 
-                let remote_timestamp = self.get_latest_collection_timestamp()?;
-                
+                debug!("The remote timestamp is {} and local timestamp is {}", remote_timestamp, cached_change_response.timestamp);
                 if remote_timestamp != cached_change_response.timestamp {
                     // fetch records, validate signature, overwrite local existing data and return records
-                    let records = self.fetch_records_with_verification()?;
-                    return Ok(records)
+                    let collection = self.fetch_records_and_verify(remote_timestamp)?;
+
+                    let collection_bytes: Vec<u8> = collection.clone().into();
+                    let key: Vec<u8> = format!("{}-{}:records", collection.bid, collection.cid).as_bytes().to_vec();
+            
+                    // before returning records, we want to override it into the cache
+                    self.cache.store(key, collection_bytes)?;
+
+                    return Ok(collection.records)
                 }
 
                 // otherwise just validate signature and return records but if valdiation fails, then fetch, validate, overwrite and return records
@@ -263,18 +283,18 @@ impl Client {
                 let records = match self.verifier.verify(&collection) {
                     Ok(()) => collection.records,
                     Err(_err) => {
-                        let records = self.fetch_records_with_verification()?;
-                        records
+                        let collection = self.fetch_records_and_verify(remote_timestamp)?;
+                        collection.records
                     },
                 };
 
                 return Ok(records)
             },
             Err(err) => {
-                debug!("error - {:?} : accessing key={} from cache - fetching records from server", err, key);
+                debug!("error - {:?} : accessing key={:?} from cache - fetching records from server", err, key);
                 
-                let records = self.fetch_records_with_verification()?;
-                return Ok(records)
+                let collection = self.fetch_records_and_verify(remote_timestamp)?;
+                return Ok(collection.records)
             }
         }
     }
@@ -285,56 +305,46 @@ mod tests {
     use super::signatures::{SignatureError, Verification};
     use super::{Client, ClientError, Collection, RemoteStorage, RemoteStorageError};
     use env_logger;
+    use serde_json::json;
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
-    use serde_json::json;
     use viaduct::set_backend;
-    use log::debug;
     use viaduct_reqwest::ReqwestBackend;
     use std::collections::HashMap as HashMap;
+    use std::fs::remove_file;
+    use log::{error};
 
-    struct VerifierWithVerificatonError {}
-    struct VerifierWithNoError {}
-    struct VerifierWithInvalidSignatureError {}
-
-    pub struct MockCache<'a> {
-        map: HashMap<&'a str, &'a str>,
+    struct MockVerifier {
+        verify_result: Vec<Result<(), SignatureError>>
     }
 
-    impl<'a> RemoteStorage for MockCache<'a> {
+    pub struct MockCache {
+        map: HashMap<Vec<u8>, Vec<u8>>,
+    }
 
-        fn store(&self, key: &str, value: &str) -> Result<(), RemoteStorageError> {
-            self.map.insert(key, value);
+    impl RemoteStorage for MockCache {
+
+        fn store(&mut self, key: Vec<u8>, value: Vec<u8>) -> Result<(), RemoteStorageError> {
+            let file_name = format!("{}.bin", String::from_utf8(key)?).as_bytes().to_vec();
+            self.map.insert(file_name, value);
             Ok(())
         }
 
-        fn retrieve(&self, key: &str) -> Result<String, RemoteStorageError> {
-            match self.map.get_key_value(&key) {
-                Some(val) => Ok(val.to_owned()),
-                None => Err(RemoteStorageError::DoesNotExistError { name: "key does not exist".to_owned() })
+        fn retrieve(&self, key: Vec<u8>) -> Result<Vec<u8>, RemoteStorageError> {
+            let file_name = format!("{}.bin", String::from_utf8(key)?).as_bytes().to_vec();
+
+            match self.map.get(&file_name) {
+                Some(val) => Ok((*val).to_owned()),
+                None => Err(RemoteStorageError::ReadError { name: "key does not exist".to_owned() })
             }
         }
     }
 
-    impl Verification for VerifierWithVerificatonError {
-        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
-            return Err(SignatureError::VerificationError {
-                name: "signature verification error".to_owned(),
-            });
-        }
-    }
-
-    impl Verification for VerifierWithNoError {
-        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
-            Ok(())
-        }
-    }
-
-    impl Verification for VerifierWithInvalidSignatureError {
-        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
-            return Err(SignatureError::InvalidSignature {
-                name: "invalid signature error".to_owned(),
-            });
+    impl Verification for MockVerifier {
+        fn verify(&mut self, _collection: &Collection) -> Result<(), SignatureError> {
+            let result: Result<(), SignatureError> = self.verify_result.remove(0);
+            
+            return result
         }
     }
 
@@ -343,11 +353,31 @@ mod tests {
         set_backend(&ReqwestBackend).unwrap();
     }
 
+    fn cleanup(file_path: &str) {
+        match remove_file(&file_path) {
+            Ok(()) => {},
+            Err(err) => error!("error removing file - {} : {}", file_path, err)
+        }
+    }
+
+    fn make_cache(key: &str, value: &str) -> Box<MockCache> {
+
+        let key_bytes = key.as_bytes().to_vec();
+        let val_bytes = value.as_bytes().to_vec();
+
+        let mut cache = MockCache {map: HashMap::new()};
+
+        cache.store(key_bytes, val_bytes).unwrap();
+
+        Box::new(cache)
+    }
+
     fn test_get(
         mock_server: &MockServer,
-        client: Client,
+        mut client: Client,
         latest_change_response: &str,
         records_response: &str,
+        fetch_remote: bool,
         expected_result: Result<Vec<serde_json::Value>, ClientError>,
     ) {
         let mut get_latest_change_mock = Mock::new()
@@ -369,13 +399,21 @@ mod tests {
             .return_body(records_response)
             .create_on(&mock_server);
 
+        if !fetch_remote {
+            get_changeset_mock.delete();
+        }
+
         let actual_result = client.get();
         assert_eq!(1, get_latest_change_mock.times_called());
-        debug!("verify actual_result:{:?}, expected_result:{:?}", actual_result, expected_result);
         assert_eq!(actual_result, expected_result);
 
-        get_changeset_mock.delete();
         get_latest_change_mock.delete();
+        
+        if fetch_remote {
+            get_changeset_mock.delete();
+        }
+
+        cleanup(&format!("{}-{}:records.bin", client.bucket_name, client.collection_name));
     }
 
     #[test]
@@ -385,6 +423,28 @@ mod tests {
         let mock_server = MockServer::start();
 
         let mock_server_address = mock_server.url("");
+
+        const STALE_TIMESTAMP_PAYLOAD: &str = r#"{
+            "metadata": {
+                "data": "test"
+            },
+            "changes": [{
+                "id": 1,
+                "last_modified": 100
+            }],
+            "timestamp": 0
+        }"#;
+
+        const LATEST_TIMESTAMP_PAYLOAD: &str = r#"{
+            "metadata": {
+                "data": "test"
+            },
+            "changes": [{
+                "id": 1,
+                "last_modified": 100
+            }],
+            "timestamp": 9173
+        }"#;
 
         let valid_latest_change_response = &format!(
             "{}",
@@ -401,31 +461,34 @@ mod tests {
         }"#
         );
 
+        // custom verifier with verification error (no local record present)
         test_get(
             &mock_server,
             Client::builder()
                 .server_url(&mock_server_address)
                 .collection_name("url-classifier-skip-urls")
-                .verifier(Box::new(VerifierWithVerificatonError {}))
-                .cache(Box::new(MockCache { map: HashMap::new() }))
+                .verifier(Box::new(MockVerifier {verify_result: vec![Err(SignatureError::VerificationError { name: "signature verification error".to_owned() })]}))
                 .build(),
             valid_latest_change_response,
             r#"{
             "metadata": {},
             "changes": [],
             "timestamp": 0
-        }"#,
+        }"#, true,
             Err(ClientError::VerificationError {
                 name: "signature verification error".to_owned(),
             }),
         );
 
+        // custom verifier with no error (no local record present)
         test_get(
             &mock_server,
             Client::builder()
                 .server_url(&mock_server_address)
                 .collection_name("url-classifier-skip-urls")
-                .verifier(Box::new(VerifierWithNoError {}))
+                .verifier(Box::new(MockVerifier {
+                    verify_result: vec![Ok(())]
+                }))
                 .build(),
             valid_latest_change_response,
             r#"{
@@ -437,35 +500,37 @@ mod tests {
                 "last_modified": 100
             }],
             "timestamp": 0
-        }"#,
+        }"#, true,
             Ok(vec![json!({
                 "id": 1,
                 "last_modified": 100
             })]),
         );
 
+        // custom verifier with invalid signature error (no local record present)
         test_get(
             &mock_server,
             Client::builder()
                 .server_url(&mock_server_address)
                 .collection_name("url-classifier-skip-urls")
-                .verifier(Box::new(VerifierWithInvalidSignatureError {}))
+                .verifier(Box::new(MockVerifier { verify_result: vec![Err(SignatureError::InvalidSignature { name: "invalid signature error".to_owned() })] }))
                 .build(),
             valid_latest_change_response,
             r#"{
             "metadata": {},
             "changes": [],
             "timestamp": 0
-        }"#,
+        }"#, true,
             Err(ClientError::Error {
                 name: "invalid signature error".to_owned(),
             }),
         );
 
+        // custom verifier with no error (error fetching latest timestamp)
         test_get(&mock_server,Client::builder()
             .server_url(&mock_server_address)
             .collection_name("url-classifier-skip-urls")
-            .verifier(Box::new(VerifierWithNoError {}))
+            .verifier(Box::new(MockVerifier { verify_result: vec![Ok(())] }))
             .build(), &format!(
             "{}",
             r#"{
@@ -477,6 +542,131 @@ mod tests {
             },
             "changes": [],
             "timestamp": 0
-        }"#, Err(ClientError::Error { name: format!("Unknown collection {}/{}", "main", "url-classifier-skip-urls") }));
+        }"#, true, Err(ClientError::Error { name: format!("Unknown collection {}/{}", "main", "url-classifier-skip-urls") }));
+
+        // custom verifier, custom cache with verification error
+        test_get(
+            &mock_server,
+            Client::builder()
+                .server_url(&mock_server_address)
+                .collection_name("url-classifier-skip-urls")
+                .verifier(Box::new(MockVerifier { verify_result: vec![Ok(())] }))
+                .cache(Box::new(MockCache { map: HashMap::new() }))
+                .build(),
+            valid_latest_change_response,
+            r#"{
+            "metadata": {},
+            "changes": [],
+            "timestamp": 0
+        }"#, true,
+        Ok(vec![]),
+        );
+
+        // custom verifier, local record timestamp matches remote timestamp so no fetching from remote
+        test_get(
+            &mock_server,
+            Client::builder()
+                .server_url(&mock_server_address)
+                .collection_name("url-classifier-skip-urls")
+                .verifier(Box::new(MockVerifier {verify_result: vec![Ok(())]}))
+                .cache(make_cache("main-url-classifier-skip-urls:records", LATEST_TIMESTAMP_PAYLOAD))
+                .build(),
+            valid_latest_change_response,
+            r#"{
+                    "metadata": {
+                        "data": "test"
+                    },
+                    "changes": [{
+                        "id": 1,
+                        "last_modified": 100
+                    }],
+                    "timestamp": 9173
+                }"#, false, Ok(vec![json!({
+            "id": 1,
+            "last_modified": 100
+        })]),
+        );
+        
+        // custom verifier, local record timestamp does not match remote timestamp so need to fetch from remote
+        test_get(
+            &mock_server,
+            Client::builder()
+                .server_url(&mock_server_address)
+                .collection_name("url-classifier-skip-urls")
+                .verifier(Box::new(MockVerifier { verify_result: vec![Ok(())]}))
+                .cache(make_cache("main-url-classifier-skip-urls:records", STALE_TIMESTAMP_PAYLOAD))
+                .build(),
+            valid_latest_change_response,
+            r#"{
+                    "metadata": {
+                        "data": "test"
+                    },
+                    "changes": [{
+                        "id": 1,
+                        "last_modified": 100
+                    }],
+                    "timestamp": 9173
+                }"#, true,Ok(vec![json!({
+            "id": 1,
+            "last_modified": 100
+        })]),
+        );
+
+        // custom verifier, local record timestamp matches remote timestamp but fails verification
+        // so need to fetch from remote; and then verification passes on remote records
+        test_get(
+            &mock_server,
+            Client::builder()
+                .server_url(&mock_server_address)
+                .collection_name("url-classifier-skip-urls")
+                .verifier(Box::new(MockVerifier {verify_result: vec![Err(SignatureError::InvalidSignature { name: "invalid signature error".to_owned() }), Ok(())]}))
+                .cache(make_cache("main-url-classifier-skip-urls:records", LATEST_TIMESTAMP_PAYLOAD))
+                .build(),
+            valid_latest_change_response,
+            r#"{
+                    "metadata": {
+                        "data": "test"
+                    },
+                    "changes": [{
+                        "id": 1,
+                        "last_modified": 100
+                    }],
+                    "timestamp": 9173
+                }"#, true,Ok(vec![json!({
+            "id": 1,
+            "last_modified": 100
+        })]),
+        );
+
+        // custom verifier, local record timestamp matches remote timestamp but fails verification
+        // so need to fetch from remote; and even then verification fails on remote records
+        test_get(
+            &mock_server,
+            Client::builder()
+                .server_url(&mock_server_address)
+                .collection_name("url-classifier-skip-urls")
+                .verifier(Box::new(MockVerifier {
+                    verify_result: vec![
+                        Err(SignatureError::VerificationError { name: "invalid signature error".to_owned() }),
+                        Err(SignatureError::VerificationError { name: "invalid signature error".to_owned() })
+                    ]
+                }))
+                .cache(make_cache("main-url-classifier-skip-urls:records", LATEST_TIMESTAMP_PAYLOAD))
+                .build(),
+            valid_latest_change_response,
+            r#"{
+                    "metadata": {
+                        "data": "test"
+                    },
+                    "changes": [{
+                        "id": 1,
+                        "last_modified": 100
+                    }],
+                    "timestamp": 9173
+                }"#, true, 
+                Err(ClientError::VerificationError { name: "invalid signature error".to_owned() })
+        );
+
+        // custom verifier, local record
     }
 }

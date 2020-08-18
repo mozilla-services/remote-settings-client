@@ -108,7 +108,7 @@ impl From<CanonicalJSONError> for SignatureError {
 
 #[cfg(feature = "openssl_verifier")]
 impl Verification for OpenSSLVerifier {
-    fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
+    fn verify(&mut self, collection: &Collection) -> Result<(), SignatureError> {
         debug!("Verifying using OpenSSL");
 
         let certificate = self.fetch_certificate(collection)?;
