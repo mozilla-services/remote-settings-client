@@ -259,7 +259,14 @@ impl Client {
         debug!("get key={:?}", String::from_utf8(key.clone()).unwrap());
     
         match self.cache.retrieve(key.clone()) {
-            Ok(value) => {
+            Ok(val) => {
+
+                let value = val.unwrap_or_else(|| Vec::new());
+
+                if value.len() == 0 {
+                    return Err(RemoteStorageError::Error { name: "read error - key not found".to_owned() }.into());
+                }
+
                 let value_str = String::from_utf8(value.to_vec())?;
                 // convert JSON object to ChangesetResponse object
                 let cached_change_response: ChangesetResponse = serde_json::from_str(&value_str)?;
@@ -330,11 +337,11 @@ mod tests {
             Ok(())
         }
 
-        fn retrieve(&self, key: Vec<u8>) -> Result<Vec<u8>, RemoteStorageError> {
+        fn retrieve(&self, key: Vec<u8>) -> Result<Option<Vec<u8>>, RemoteStorageError> {
             let file_name = format!("{}.bin", String::from_utf8(key)?).as_bytes().to_vec();
 
             match self.map.get(&file_name) {
-                Some(val) => Ok((*val).to_owned()),
+                Some(val) => Ok(Some((*val).to_owned())),
                 None => Err(RemoteStorageError::ReadError { name: "key does not exist".to_owned() })
             }
         }

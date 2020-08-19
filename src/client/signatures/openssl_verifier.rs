@@ -149,6 +149,8 @@ mod tests {
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
     use serde_json::json;
+    use viaduct::set_backend;
+    use viaduct_reqwest::ReqwestBackend;
 
     fn openssl_verify(
         mock_server: &MockServer,
@@ -156,7 +158,7 @@ mod tests {
         certificate: &str,
         should_fail: bool,
     ) {
-        let openssl_verifier = OpenSSLVerifier {};
+        let mut openssl_verifier = OpenSSLVerifier {};
 
         let mut get_pem_certificate = Mock::new()
             .expect_method(GET)
@@ -180,6 +182,7 @@ mod tests {
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
+        set_backend(&ReqwestBackend).unwrap();
     }
 
     #[test]

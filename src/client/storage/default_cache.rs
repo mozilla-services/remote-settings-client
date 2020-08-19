@@ -35,7 +35,7 @@ impl RemoteStorage for DefaultCache {
         };
     }
 
-    fn retrieve(&self, key: Vec<u8>) -> Result<Vec<u8>, RemoteStorageError> {
+    fn retrieve(&self, key: Vec<u8>) -> Result<Option<Vec<u8>>, RemoteStorageError> {
         debug!("default cache retrieve key={:?}", key);
 
         let file_name = &format!("{}.bin", String::from_utf8(key)?);
@@ -55,12 +55,12 @@ impl RemoteStorage for DefaultCache {
         match file.read_to_string(&mut s) {
             Err(why) => {
                 info!("couldn't read {}: {}", display, why);
-                return Err(RemoteStorageError::ReadError {name: why.to_string()});
+                return Ok(None);
             },
             Ok(_) => info!("{} contains:\n{}", display, s),
         };
 
-        Ok(s.into_bytes())
+        Ok(Some(s.into_bytes()))
     }
 }
 
@@ -93,7 +93,8 @@ mod tests {
         // store key, value pair into the cache
         default_cache.store(key, value).unwrap();
 
-        let value_bytes = default_cache.retrieve("test".as_bytes().to_vec()).unwrap();
+        let retrieve_result = default_cache.retrieve("test".as_bytes().to_vec()).unwrap();
+        let value_bytes = retrieve_result.unwrap();
         let value_str = String::from_utf8(value_bytes.to_vec()).unwrap();
 
         assert_eq!(value_str, "records");
@@ -113,7 +114,9 @@ mod tests {
 
         default_cache.store(key, "new-records".as_bytes().to_vec()).unwrap();
 
-        let value_bytes = default_cache.retrieve("test".as_bytes().to_vec()).unwrap();
+        let retrieve_result = default_cache.retrieve("test".as_bytes().to_vec()).unwrap();
+        
+        let value_bytes = retrieve_result.unwrap();
 
         let value_str = String::from_utf8(value_bytes.to_vec()).unwrap();
         assert_eq!(value_str, "new-records");

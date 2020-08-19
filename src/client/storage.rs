@@ -15,8 +15,8 @@ pub mod default_cache;
 ///         Ok(())
 ///     }
 /// 
-///     fn retrieve(&self, key: Vec<u8>) -> Result<Vec<u8>, RemoteStorageError> {
-///         Ok(Vec::new())
+///     fn retrieve(&self, key: Vec<u8>) -> Result<Option<Vec<u8>>, RemoteStorageError> {
+///         Ok(Some(Vec::new()))
 ///     }
 /// }
 /// ```
@@ -32,7 +32,7 @@ pub trait RemoteStorage {
     /// Retrieve value mapping to the key
     /// 
     /// If key cannot be found, return RemoteStorageError::ReadError
-    fn retrieve(&self, key: Vec<u8>) -> Result<Vec<u8>, RemoteStorageError>;
+    fn retrieve(&self, key: Vec<u8>) -> Result<Option<Vec<u8>>, RemoteStorageError>;
 }
 
 #[derive(Debug, PartialEq)]
