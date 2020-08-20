@@ -174,7 +174,7 @@ impl Client {
     /// # Examples
     /// ```text
     /// fn main() {
-    ///   match Client::create_with_collection("collection", None).get() {
+    ///   match Client::builder().collection_name("collection").build().get() {
     ///     Ok(records) => println!("{:?}", records),
     ///     Err(error) => println!("Error fetching/verifying records: {:?}", error)
     ///   };

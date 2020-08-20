@@ -33,7 +33,7 @@ fn main() {
 
   // we pass None for Verifier parameter to fall back to default verifier implementation
   // here server_url and bucket_name will be set to default values
-  let client = Client::create_with_collection("example-collection", None);
+  let client = Client::builder().collection_name("example-collection").build();
   
   match client.get() {
         Ok(records) => println!("{:?}", records),
