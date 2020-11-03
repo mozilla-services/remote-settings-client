@@ -67,7 +67,6 @@ pub struct ClientBuilder {
 }
 
 impl ClientBuilder {
-
     /// Constructs a new `ClientBuilder`.
     ///
     /// This is the same as `Client::builder()`.
@@ -76,7 +75,7 @@ impl ClientBuilder {
             server_url: DEFAULT_SERVER_URL.to_owned(),
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
-            verifier: Box::new(AlwaysAcceptsVerifier{}),
+            verifier: Box::new(AlwaysAcceptsVerifier {}),
         };
     }
 
@@ -110,7 +109,7 @@ impl ClientBuilder {
             server_url: self.server_url,
             bucket_name: self.bucket_name,
             collection_name: self.collection_name,
-            verifier: self.verifier
+            verifier: self.verifier,
         }
     }
 }
@@ -155,13 +154,12 @@ impl Default for Client {
             server_url: DEFAULT_SERVER_URL.to_owned(),
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
-            verifier: Box::new(AlwaysAcceptsVerifier{}),
+            verifier: Box::new(AlwaysAcceptsVerifier {}),
         };
     }
 }
 
 impl Client {
-
     /// Creates a `ClientBuilder` to configure a `Client`.
     ///
     /// This is the same as `ClientBuilder::new()`.
@@ -324,10 +322,10 @@ mod tests {
                 .build(),
             valid_latest_change_response,
             r#"{
-            "metadata": {},
-            "changes": [],
-            "timestamp": 0
-        }"#,
+                "metadata": {},
+                "changes": [],
+                "timestamp": 0
+            }"#,
             Err(ClientError::VerificationError {
                 name: "signature verification error".to_owned(),
             }),
@@ -342,15 +340,15 @@ mod tests {
                 .build(),
             valid_latest_change_response,
             r#"{
-            "metadata": {
-                "data": "test"
-            },
-            "changes": [{
-                "id": 1,
-                "last_modified": 100
-            }],
-            "timestamp": 0
-        }"#,
+                "metadata": {
+                    "data": "test"
+                },
+                "changes": [{
+                    "id": 1,
+                    "last_modified": 100
+                }],
+                "timestamp": 0
+            }"#,
             Ok(vec![json!({
                 "id": 1,
                 "last_modified": 100
