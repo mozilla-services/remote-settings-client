@@ -63,31 +63,21 @@ impl From<std::num::ParseIntError> for KintoError {
 }
 
 pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result<u64, KintoError> {
-    let url = format!(
-        "{}/buckets/monitor/collections/changes/records?bucket={}&collection={}",
-        server, bid, cid
-    );
-
-    info!("Fetch latest change {}...", url);
-    let resp = Request::get(Url::parse(&url)?).send()?;
-
-    let size = resp
-        .headers
-        .get("content-length")
-        .ok_or_else(|| KintoError::Error {
-            name: "no content-length header error".to_owned(),
-        });
-    debug!("Download {:?} bytes...", size);
-
-    let latest_change: KintoPluralResponse<LatestChangeResponse> = resp.json()?;
-    
-    let last_modified = match latest_change.data.get(0) {
-        Some(change) => change.last_modified,
+    let response = get_changeset(&server, "monitor", "changes", None)?;
+    let change = match response
+        .changes
+        .iter()
+        .find(|&x| x["bucket"] == bid && x["collection"] == cid)
+    {
+        Some(v) => v,
         None => {
             // bucket/collection provided is unknown
-            return Err(KintoError::Error {name: format!("Unknown collection {}/{}", bid, cid)});
+            return Err(KintoError::Error {
+                name: format!("Unknown collection {}/{}", bid, cid),
+            });
         }
     };
+    let last_modified = change["last_modified"].as_u64().unwrap();
 
     debug!(
         "collection: {}, bucket: {}, last_modified: {}",
@@ -101,16 +91,21 @@ pub fn get_changeset(
     server: &str,
     bid: &str,
     cid: &str,
-    expected: u64,
+    expected: Option<u64>,
 ) -> Result<ChangesetResponse, KintoError> {
     debug!(
-        "The expected timestamp for bucket={}, collection={} is {}",
+        "The expected timestamp for bucket={}, collection={} is {:?}",
         bid, cid, expected
     );
-
     let url = format!(
-        "{}/buckets/{}/collections/{}/changeset?_expected={}",
-        server, bid, cid, expected
+        "{}/buckets/{}/collections/{}/changeset{}",
+        server,
+        bid,
+        cid,
+        match expected {
+            None => String::new(),
+            Some(v) => format!("?_expected={}", v),
+        }
     );
     info!("Fetch {}...", url);
 
