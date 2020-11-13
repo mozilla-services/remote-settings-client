@@ -384,7 +384,7 @@ mod tests {
                 "metadata": {},
                 "changes": [],
                 "timestamp": 0
-            }"#
+            }"#,
             r#"{
                 "metadata": {
                     "data": "test"

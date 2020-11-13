@@ -97,16 +97,13 @@ pub fn get_changeset(
         "The expected timestamp for bucket={}, collection={} is {:?}",
         bid, cid, expected
     );
-    let url = format!(
-        "{}/buckets/{}/collections/{}/changeset{}",
-        server,
-        bid,
-        cid,
-        match expected {
-            None => String::new(),
-            Some(v) => format!("?_expected={}", v),
+    let url = {
+        let mut partial = format!("{}/buckets/{}/collections/{}/changeset", server, bid, cid);
+        if let Some(v) = expected {
+            partial.push_str(&format!("?_expected={}", v));
         }
-    );
+        partial
+    };
     info!("Fetch {}...", url);
 
     let resp = Request::get(Url::parse(&url)?).send()?;
