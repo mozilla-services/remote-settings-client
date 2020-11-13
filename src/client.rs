@@ -67,7 +67,6 @@ pub struct ClientBuilder {
 }
 
 impl ClientBuilder {
-
     /// Constructs a new `ClientBuilder`.
     ///
     /// This is the same as `Client::builder()`.
@@ -76,7 +75,7 @@ impl ClientBuilder {
             server_url: DEFAULT_SERVER_URL.to_owned(),
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
-            verifier: Box::new(AlwaysAcceptsVerifier{}),
+            verifier: Box::new(AlwaysAcceptsVerifier {}),
         };
     }
 
@@ -110,7 +109,7 @@ impl ClientBuilder {
             server_url: self.server_url,
             bucket_name: self.bucket_name,
             collection_name: self.collection_name,
-            verifier: self.verifier
+            verifier: self.verifier,
         }
     }
 }
@@ -155,13 +154,12 @@ impl Default for Client {
             server_url: DEFAULT_SERVER_URL.to_owned(),
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
-            verifier: Box::new(AlwaysAcceptsVerifier{}),
+            verifier: Box::new(AlwaysAcceptsVerifier {}),
         };
     }
 }
 
 impl Client {
-
     /// Creates a `ClientBuilder` to configure a `Client`.
     ///
     /// This is the same as `ClientBuilder::new()`.
@@ -194,18 +192,21 @@ impl Client {
             &self.server_url,
             &self.bucket_name,
             &self.collection_name,
-            expected
-       )?;
+            Some(expected),
+        )?;
 
-       debug!("changeset.metadata {}", serde_json::to_string_pretty(&changeset.metadata)?);
+        debug!(
+            "changeset.metadata {}",
+            serde_json::to_string_pretty(&changeset.metadata)?
+        );
 
-       // verify the signature
-       let collection = Collection {
-           bid: self.bucket_name.to_owned(),
-           cid: self.collection_name.to_owned(),
-           metadata: changeset.metadata,
-           records: changeset.changes,
-           timestamp: changeset.timestamp
+        // verify the signature
+        let collection = Collection {
+            bid: self.bucket_name.to_owned(),
+            cid: self.collection_name.to_owned(),
+            metadata: changeset.metadata,
+            records: changeset.changes,
+            timestamp: changeset.timestamp,
         };
 
         self.verifier.verify(&collection)?;
@@ -264,9 +265,7 @@ mod tests {
     ) {
         let mut get_latest_change_mock = Mock::new()
             .expect_method(GET)
-            .expect_path("/buckets/monitor/collections/changes/records")
-            .expect_query_param("bucket", "main")
-            .expect_query_param("collection", "url-classifier-skip-urls")
+            .expect_path("/buckets/monitor/collections/changes/changeset")
             .return_status(200)
             .return_header("Content-Type", "application/json")
             .return_body(latest_change_response)
@@ -300,16 +299,18 @@ mod tests {
         let valid_latest_change_response = &format!(
             "{}",
             r#"{
-            "data": [
-                {
-                    "id": "123",
-                    "last_modified": 9173,
-                    "bucket":"main",
-                    "collection":"url-classifier-skip-urls",
-                    "host":"localhost:5000"
-                }
-            ]
-        }"#
+                "metadata": {},
+                "changes": [
+                    {
+                        "id": "123",
+                        "last_modified": 9173,
+                        "bucket":"main",
+                        "collection":"url-classifier-skip-urls",
+                        "host":"localhost:5000"
+                    }
+                ],
+                "timestamp": 0
+            }"#
         );
 
         test_get(
@@ -321,10 +322,10 @@ mod tests {
                 .build(),
             valid_latest_change_response,
             r#"{
-            "metadata": {},
-            "changes": [],
-            "timestamp": 0
-        }"#,
+                "metadata": {},
+                "changes": [],
+                "timestamp": 0
+            }"#,
             Err(ClientError::VerificationError {
                 name: "signature verification error".to_owned(),
             }),
@@ -339,15 +340,15 @@ mod tests {
                 .build(),
             valid_latest_change_response,
             r#"{
-            "metadata": {
-                "data": "test"
-            },
-            "changes": [{
-                "id": 1,
-                "last_modified": 100
-            }],
-            "timestamp": 0
-        }"#,
+                "metadata": {
+                    "data": "test"
+                },
+                "changes": [{
+                    "id": 1,
+                    "last_modified": 100
+                }],
+                "timestamp": 0
+            }"#,
             Ok(vec![json!({
                 "id": 1,
                 "last_modified": 100
@@ -363,30 +364,40 @@ mod tests {
                 .build(),
             valid_latest_change_response,
             r#"{
-            "metadata": {},
-            "changes": [],
-            "timestamp": 0
-        }"#,
+                "metadata": {},
+                "changes": [],
+                "timestamp": 0
+            }"#,
             Err(ClientError::Error {
                 name: "invalid signature error".to_owned(),
             }),
         );
 
-        test_get(&mock_server,Client::builder()
-            .server_url(&mock_server_address)
-            .collection_name("url-classifier-skip-urls")
-            .verifier(Box::new(VerifierWithNoError {}))
-            .build(), &format!(
-            "{}",
+        test_get(
+            &mock_server,
+            Client::builder()
+                .server_url(&mock_server_address)
+                .collection_name("url-classifier-skip-urls")
+                .verifier(Box::new(VerifierWithNoError {}))
+                .build(),
             r#"{
-            "data": []
-        }"#
-        ), r#"{
-            "metadata": {
-                "data": "test"
-            },
-            "changes": [],
-            "timestamp": 0
-        }"#, Err(ClientError::Error { name: format!("Unknown collection {}/{}", "main", "url-classifier-skip-urls") }));
+                "metadata": {},
+                "changes": [],
+                "timestamp": 0
+            }"#,
+            r#"{
+                "metadata": {
+                    "data": "test"
+                },
+                "changes": [],
+                "timestamp": 0
+            }"#,
+            Err(ClientError::Error {
+                name: format!(
+                    "Unknown collection {}/{}",
+                    "main", "url-classifier-skip-urls"
+                ),
+            }),
+        );
     }
 }

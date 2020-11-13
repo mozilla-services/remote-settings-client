@@ -4,8 +4,8 @@
 
 use crate::client::Collection;
 use base64;
-use url::{ParseError};
-use viaduct::{Error as ViaductError};
+use url::ParseError;
+use viaduct::Error as ViaductError;
 #[cfg(not(feature = "openssl_verifier"))]
 pub mod default_verifier;
 #[cfg(feature = "openssl_verifier")]
