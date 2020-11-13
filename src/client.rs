@@ -380,14 +380,11 @@ mod tests {
                 .collection_name("url-classifier-skip-urls")
                 .verifier(Box::new(VerifierWithNoError {}))
                 .build(),
-            &format!(
-                "{}",
-                r#"{
-                    "metadata": {},
-                    "changes": [],
-                    "timestamp": 0
-                }"#
-            ),
+            r#"{
+                "metadata": {},
+                "changes": [],
+                "timestamp": 0
+            }"#
             r#"{
                 "metadata": {
                     "data": "test"
