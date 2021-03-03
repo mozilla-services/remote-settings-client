@@ -10,10 +10,10 @@ use log::debug;
 pub use signatures::{SignatureError, Verification};
 
 #[cfg(feature = "openssl_verifier")]
-use crate::client::signatures::openssl_verifier::OpenSSLVerifier as AlwaysAcceptsVerifier;
+use crate::client::signatures::openssl_verifier::OpenSSLVerifier as DefaultVerifier;
 
 #[cfg(not(feature = "openssl_verifier"))]
-use crate::client::signatures::default_verifier::DefaultVerifier as AlwaysAcceptsVerifier;
+use crate::client::signatures::default_verifier::DefaultVerifier;
 
 pub const DEFAULT_SERVER_URL: &str = "https://firefox.settings.services.mozilla.com/v1";
 pub const DEFAULT_BUCKET_NAME: &str = "main";
@@ -75,7 +75,7 @@ impl ClientBuilder {
             server_url: DEFAULT_SERVER_URL.to_owned(),
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
-            verifier: Box::new(AlwaysAcceptsVerifier {}),
+            verifier: Box::new(DefaultVerifier {}),
         };
     }
 
@@ -154,7 +154,7 @@ impl Default for Client {
             server_url: DEFAULT_SERVER_URL.to_owned(),
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
-            verifier: Box::new(AlwaysAcceptsVerifier {}),
+            verifier: Box::new(DefaultVerifier {}),
         };
     }
 }

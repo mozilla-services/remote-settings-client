@@ -94,9 +94,12 @@ pub fn get_changeset(
     );
     let cache_bust = match expected {
         Some(v) => v,
-        None => 0
+        None => 0,
     };
-    let url = format!("{}/buckets/{}/collections/{}/changeset?_expected={}", server, bid, cid, cache_bust);
+    let url = format!(
+        "{}/buckets/{}/collections/{}/changeset?_expected={}",
+        server, bid, cid, cache_bust
+    );
     info!("Fetch {}...", url);
 
     let resp = Request::get(Url::parse(&url)?).send()?;
