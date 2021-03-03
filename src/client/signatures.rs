@@ -44,6 +44,7 @@ pub trait Verification {
 
 #[derive(Debug, PartialEq)]
 pub enum SignatureError {
+    CertificateError { name: String },
     InvalidSignature { name: String },
     VerificationError { name: String },
 }

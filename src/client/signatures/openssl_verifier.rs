@@ -7,94 +7,27 @@ use {
     super::{Collection, SignatureError, Verification},
     canonical_json::{to_string, CanonicalJSONError},
     log::debug,
-    openssl::bn::BigNumContext,
-    openssl::ec::{EcGroup, PointConversionForm},
-    openssl::nid::Nid,
-    openssl::x509::X509,
+    ring::signature::{self},
     serde_json::json,
-    signatory::{
-        ecdsa::{curve::NistP384, FixedSignature},
-        verify_sha384, EcdsaPublicKey, Signature,
-    },
-    signatory_ring::ecdsa::P384Verifier,
     url::Url,
     viaduct::Request,
+    x509_parser::{self, error as x509_errors},
 };
 
 pub struct OpenSSLVerifier {}
 
-impl OpenSSLVerifier {
-    fn fetch_certificate(&self, collection: &Collection) -> Result<X509, SignatureError> {
-        // Fetch certificate PEM (public key).
-        let x5u = collection.metadata["signature"]["x5u"]
-            .as_str()
-            .ok_or_else(|| SignatureError::InvalidSignature {
-                name: "x5u field not present in signature".to_owned(),
-            })?;
+impl OpenSSLVerifier {}
 
-        debug!("Fetching certificate {}", x5u);
-        let resp = Request::get(Url::parse(&x5u)?).send()?;
-
-        // Parse PEM (OpenSSL)
-        let cert: X509 = match X509::from_pem(&resp.body) {
-            Ok(certificate) => certificate,
-            Err(err) => {
-                debug!("Encountered an error {}", err);
-                return Err(SignatureError::InvalidSignature {
-                    name: err.to_string(),
-                });
-            }
-        };
-
-        Ok(cert)
-    }
-
-    fn get_public_key(
-        &self,
-        certificate: X509,
-    ) -> Result<EcdsaPublicKey<NistP384>, SignatureError> {
-        let public_key = certificate.public_key()?;
-        let ec_public_key = public_key.ec_key()?;
-        let mut ctx = BigNumContext::new()?;
-        let group = EcGroup::from_curve_name(Nid::SECP384R1)?;
-        let public_key_bytes = ec_public_key.public_key().to_bytes(
-            &group,
-            PointConversionForm::UNCOMPRESSED,
-            &mut ctx,
-        )?;
-        let pk: EcdsaPublicKey<NistP384> = EcdsaPublicKey::from_bytes(&public_key_bytes)?;
-
-        Ok(pk)
-    }
-
-    fn extract_signature(
-        &self,
-        collection: &Collection,
-    ) -> Result<FixedSignature<NistP384>, SignatureError> {
-        let b64_signature = match collection.metadata["signature"]["signature"].as_str() {
-            Some(b64_signature) => b64_signature,
-            None => "",
-        };
-
-        let signature_bytes = base64::decode_config(&b64_signature, base64::URL_SAFE)?;
-        let signature = FixedSignature::<NistP384>::from_bytes(&signature_bytes)?;
-
-        Ok(signature)
+#[cfg(feature = "openssl_verifier")]
+impl From<x509_errors::X509Error> for SignatureError {
+    fn from(err: x509_errors::X509Error) -> Self {
+        err.into()
     }
 }
 
 #[cfg(feature = "openssl_verifier")]
-impl From<signatory::error::Error> for SignatureError {
-    fn from(err: signatory::error::Error) -> Self {
-        SignatureError::VerificationError {
-            name: err.to_string(),
-        }
-    }
-}
-
-#[cfg(feature = "openssl_verifier")]
-impl From<openssl::error::ErrorStack> for SignatureError {
-    fn from(err: openssl::error::ErrorStack) -> Self {
+impl From<x509_errors::PEMError> for SignatureError {
+    fn from(err: x509_errors::PEMError) -> Self {
         err.into()
     }
 }
@@ -111,13 +44,57 @@ impl Verification for OpenSSLVerifier {
     fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
         debug!("Verifying using OpenSSL");
 
-        let certificate = self.fetch_certificate(collection)?;
+        // Fetch certificate PEM (public key).
+        let x5u = collection.metadata["signature"]["x5u"]
+            .as_str()
+            .ok_or_else(|| SignatureError::InvalidSignature {
+                name: "x5u field not present in signature".to_owned(),
+            })?;
 
-        // Get public key from certificate
-        let public_key = self.get_public_key(certificate)?;
+        debug!("Fetching certificate {}", x5u);
+        let resp = Request::get(Url::parse(&x5u)?).send()?;
+
+        // Extram PEM.
+        // Use this command to debug:
+        // ``openssl x509 -inform PEM -in cert.pem -text``
+        let pem_bytes = &resp.body;
+        let pem = match x509_parser::pem::parse_x509_pem(pem_bytes) {
+            Ok((_, pem)) => {
+                if pem.label != "CERTIFICATE" {
+                    return Err(SignatureError::CertificateError {
+                        name: "PEM is not a certificate".to_string(),
+                    });
+                }
+                pem
+            }
+            Err(err) => {
+                return Err(SignatureError::CertificateError {
+                    name:  err.to_string(),
+                });
+            }
+        };
+        // Extract SubjectPublicKeyInfo
+        let spki = match x509_parser::parse_x509_certificate(&pem.contents) {
+            Ok((_, x509)) => x509.tbs_certificate.subject_pki,
+            Err(err) => {
+                return Err(SignatureError::CertificateError {
+                    name:  err.to_string(),
+                });
+            }
+        };
+
+        // Get public key from certificates
+        let public_key = signature::UnparsedPublicKey::new(
+            &signature::ECDSA_P384_SHA384_ASN1,
+            &spki.subject_public_key.data,
+        );
 
         // Instantiate signature
-        let signature = self.extract_signature(collection)?;
+        let b64_signature = match collection.metadata["signature"]["signature"].as_str() {
+            Some(b64_signature) => b64_signature,
+            None => "",
+        };
+        let signature_bytes = base64::decode_config(&b64_signature, base64::URL_SAFE)?;
 
         // Serialized data.
         let mut sorted_records = collection.records.to_vec();
@@ -129,15 +106,13 @@ impl Verification for OpenSSLVerifier {
 
         let data = format!("Content-Signature:\x00{}", serialized);
 
-        // Verify
-        verify_sha384(
-            &P384Verifier::from(&public_key),
-            &data.as_bytes(),
-            &signature,
-        )?;
-
-        debug!("Done verifying signature");
-        Ok(())
+        // Verify data against signature using public key
+        match public_key.verify(&data.as_bytes(), &signature_bytes) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(SignatureError::VerificationError {
+                name: err.to_string(),
+            })
+        }
     }
 }
 
@@ -171,7 +146,13 @@ mod tests {
         if should_fail {
             assert!(openssl_verifier.verify(&collection).is_err())
         } else {
-            assert!(openssl_verifier.verify(&collection).is_ok())
+            match openssl_verifier.verify(&collection) {
+                Err(err) => {
+                    println!("{:?}", err);
+                    assert!(false)
+                }
+                Ok(_) => println!("success"),
+            }
         }
 
         assert_eq!(1, get_pem_certificate.times_called());

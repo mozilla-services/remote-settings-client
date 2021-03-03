@@ -41,6 +41,9 @@ impl From<serde_json::error::Error> for ClientError {
 impl From<SignatureError> for ClientError {
     fn from(err: SignatureError) -> Self {
         match err {
+            SignatureError::CertificateError { name } => {
+                return ClientError::VerificationError { name: name }
+            }
             SignatureError::VerificationError { name } => {
                 return ClientError::VerificationError { name: name }
             }
