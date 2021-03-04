@@ -22,15 +22,6 @@ pub struct ChangesetResponse {
     pub timestamp: u64,
 }
 
-#[derive(Deserialize, Debug)]
-pub struct LatestChangeResponse {
-    pub id: String,
-    pub last_modified: u64,
-    pub bucket: String,
-    pub collection: String,
-    pub host: String,
-}
-
 #[derive(Debug)]
 pub enum KintoError {
     Error { name: String },
