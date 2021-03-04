@@ -36,7 +36,10 @@ impl From<ViaductError> for KintoError {
 
 impl From<serde_json::error::Error> for KintoError {
     fn from(err: serde_json::error::Error) -> Self {
-        err.into()
+        info!("JSON error: {}", err);
+        KintoError::Error {
+            name: format!("JSON error {}", err),
+        }
     }
 }
 
@@ -49,6 +52,7 @@ impl From<ParseError> for KintoError {
 
 impl From<std::num::ParseIntError> for KintoError {
     fn from(err: std::num::ParseIntError) -> Self {
+        info!("Parse error {}", err);
         err.into()
     }
 }
@@ -88,13 +92,11 @@ pub fn get_changeset(
         "The expected timestamp for bucket={}, collection={} is {:?}",
         bid, cid, expected
     );
-    let url = {
-        let mut partial = format!("{}/buckets/{}/collections/{}/changeset", server, bid, cid);
-        if let Some(v) = expected {
-            partial.push_str(&format!("?_expected={}", v));
-        }
-        partial
+    let cache_bust = match expected {
+        Some(v) => v,
+        None => 0
     };
+    let url = format!("{}/buckets/{}/collections/{}/changeset?_expected={}", server, bid, cid, cache_bust);
     info!("Fetch {}...", url);
 
     let resp = Request::get(Url::parse(&url)?).send()?;
