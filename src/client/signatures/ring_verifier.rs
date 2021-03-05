@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-#[cfg(feature = "openssl_verifier")]
+#[cfg(feature = "ring_verifier")]
 use {
     super::{Collection, SignatureError, Verification},
     canonical_json::{to_string, CanonicalJSONError},
@@ -14,35 +14,35 @@ use {
     x509_parser::{self, error as x509_errors},
 };
 
-pub struct OpenSSLVerifier {}
+pub struct RingVerifier {}
 
-impl OpenSSLVerifier {}
+impl RingVerifier {}
 
-#[cfg(feature = "openssl_verifier")]
+#[cfg(feature = "ring_verifier")]
 impl From<x509_errors::X509Error> for SignatureError {
     fn from(err: x509_errors::X509Error) -> Self {
         err.into()
     }
 }
 
-#[cfg(feature = "openssl_verifier")]
+#[cfg(feature = "ring_verifier")]
 impl From<x509_errors::PEMError> for SignatureError {
     fn from(err: x509_errors::PEMError) -> Self {
         err.into()
     }
 }
 
-#[cfg(feature = "openssl_verifier")]
+#[cfg(feature = "ring_verifier")]
 impl From<CanonicalJSONError> for SignatureError {
     fn from(err: CanonicalJSONError) -> Self {
         err.into()
     }
 }
 
-#[cfg(feature = "openssl_verifier")]
-impl Verification for OpenSSLVerifier {
+#[cfg(feature = "ring_verifier")]
+impl Verification for RingVerifier {
     fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
-        debug!("Verifying using OpenSSL");
+        debug!("Verifying using x509-parser and ring");
 
         // Fetch certificate PEM (public key).
         let x5u = collection.metadata["signature"]["x5u"]
@@ -116,22 +116,22 @@ impl Verification for OpenSSLVerifier {
     }
 }
 
-#[cfg(feature = "openssl_verifier")]
+#[cfg(feature = "ring_verifier")]
 #[cfg(test)]
 mod tests {
-    use super::{Collection, OpenSSLVerifier, Verification};
+    use super::{Collection, RingVerifier, Verification};
     use env_logger;
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
     use serde_json::json;
 
-    fn openssl_verify(
+    fn verify_signature(
         mock_server: &MockServer,
         collection: Collection,
         certificate: &str,
         should_fail: bool,
     ) {
-        let openssl_verifier = OpenSSLVerifier {};
+        let ring_verifier = RingVerifier {};
 
         let mut get_pem_certificate = Mock::new()
             .expect_method(GET)
@@ -144,9 +144,9 @@ mod tests {
             .create_on(&mock_server);
 
         if should_fail {
-            assert!(openssl_verifier.verify(&collection).is_err())
+            assert!(ring_verifier.verify(&collection).is_err())
         } else {
-            match openssl_verifier.verify(&collection) {
+            match ring_verifier.verify(&collection) {
                 Err(err) => {
                     println!("{:?}", err);
                     assert!(false)
@@ -164,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn test_openssl_verify() {
+    fn test_verify_signature() {
         init();
 
         let mock_server: MockServer = MockServer::start();
@@ -213,7 +213,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
 
         const INVALID_SIGNATURE: &str = r#"invalid-signature: oPRadsg_5wnnUXlRIjamXKPWyyGe4VLt-KR4-PJTK2hq4hF196L3nbvne1_7-HfpoVRR4BLsHWtnnt6700CTt5kNgwvrE8aJ3nXFa0vJBoOvIRco-vCt-rJ7acEu0IFG"#;
 
-        openssl_verify(
+        verify_signature(
             &mock_server,
             Collection {
                 bid: "main".to_owned(),
@@ -232,7 +232,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
         );
 
         // signature verification should fail with invalid message
-        openssl_verify(
+        verify_signature(
             &mock_server,
             Collection {
                 bid: "main".to_owned(),
@@ -251,7 +251,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
         );
 
         // signature verification should fail with invalid signature
-        openssl_verify(
+        verify_signature(
             &mock_server,
             Collection {
                 bid: "main".to_owned(),
@@ -270,7 +270,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
         );
 
         // signature verification should fail with invalid certificate
-        openssl_verify(
+        verify_signature(
             &mock_server,
             Collection {
                 bid: "main".to_owned(),

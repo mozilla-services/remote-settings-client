@@ -9,10 +9,10 @@ use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoOb
 use log::debug;
 pub use signatures::{SignatureError, Verification};
 
-#[cfg(feature = "openssl_verifier")]
-use crate::client::signatures::openssl_verifier::OpenSSLVerifier as DefaultVerifier;
+#[cfg(feature = "ring_verifier")]
+use crate::client::signatures::ring_verifier::RingVerifier as DefaultVerifier;
 
-#[cfg(not(feature = "openssl_verifier"))]
+#[cfg(not(feature = "ring_verifier"))]
 use crate::client::signatures::default_verifier::DefaultVerifier;
 
 pub const DEFAULT_SERVER_URL: &str = "https://firefox.settings.services.mozilla.com/v1";

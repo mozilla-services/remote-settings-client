@@ -8,8 +8,8 @@ use url::ParseError;
 use viaduct::Error as ViaductError;
 
 pub mod default_verifier;
-#[cfg(feature = "openssl_verifier")]
-pub mod openssl_verifier;
+#[cfg(feature = "ring_verifier")]
+pub mod ring_verifier;
 
 use log::debug;
 
