@@ -11,7 +11,10 @@ pub use signatures::{SignatureError, Verification};
 #[cfg(feature = "ring_verifier")]
 use crate::client::signatures::ring_verifier::RingVerifier as DefaultVerifier;
 
-#[cfg(not(feature = "ring_verifier"))]
+#[cfg(feature = "rc_crypto_verifier")]
+use crate::client::signatures::rc_crypto_verifier::RcCryptoVerifier as DefaultVerifier;
+
+#[cfg(not(any(feature = "ring_verifier", feature="rc_crypto_verifier")))]
 use crate::client::signatures::default_verifier::DefaultVerifier;
 
 pub const DEFAULT_SERVER_URL: &str = "https://firefox.settings.services.mozilla.com/v1";

@@ -8,8 +8,12 @@ use url::ParseError;
 use viaduct::Error as ViaductError;
 
 pub mod default_verifier;
+
 #[cfg(feature = "ring_verifier")]
 pub mod ring_verifier;
+
+#[cfg(feature = "rc_crypto_verifier")]
+pub mod rc_crypto_verifier;
 
 use log::debug;
 
