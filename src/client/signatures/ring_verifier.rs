@@ -16,6 +16,8 @@ use {
 
 pub struct RingVerifier {}
 
+const SIGNATURE_LENGTH: usize = 96;
+
 impl RingVerifier {}
 
 #[cfg(feature = "ring_verifier")]
@@ -37,6 +39,37 @@ impl From<CanonicalJSONError> for SignatureError {
     fn from(err: CanonicalJSONError) -> Self {
         err.into()
     }
+}
+
+fn encode_dss_signature(signature_bytes: Vec<u8>) -> Vec<u8> {
+    // See https://github.com/briansmith/ring/blob/3b1ece4/src/io/der_writer.rs
+    let sig_len = signature_bytes.len();
+    let r_bytes = &signature_bytes[0..sig_len / 2];
+    let s_bytes = &signature_bytes[sig_len / 2..];
+
+    // Encode the two points.
+    let mut tuple_der: Vec<u8> = Vec::new();
+    for val in [r_bytes, s_bytes].iter() {
+        // INTEGER = 0x02
+        tuple_der.push(0x02);
+        tuple_der.push((val.len() + 1) as u8);
+        if (val[0] & 0x80) != 0 {
+            // Disambiguate negative number.
+            tuple_der.push(0x00);
+        }
+        tuple_der.extend(*val);
+    }
+
+    let mut signature_der: Vec<u8> = Vec::new();
+    // CONSTRUCTED = 0x20
+    // SEQUENCE = 0x10 | CONSTRUCTED
+    signature_der.push(0x30);
+    // Total Length
+    signature_der.push(tuple_der.len() as u8);
+    // Content
+    signature_der.extend(tuple_der);
+
+    signature_der
 }
 
 #[cfg(feature = "ring_verifier")]
@@ -95,6 +128,14 @@ impl Verification for RingVerifier {
             None => "",
         };
         let signature_bytes = base64::decode_config(&b64_signature, base64::URL_SAFE)?;
+        // Signature must be 96 bits.
+        if signature_bytes.len() != SIGNATURE_LENGTH {
+            return Err(SignatureError::InvalidSignature {
+                name: "Signature has invalid length for NIST P-384 / secp384r1".to_string(),
+            });
+        };
+        // Encode (r, s) in DER format.
+        let signature_der = encode_dss_signature(signature_bytes);
 
         // Serialized data.
         let mut sorted_records = collection.records.to_vec();
@@ -107,7 +148,7 @@ impl Verification for RingVerifier {
         let data = format!("Content-Signature:\x00{}", serialized);
 
         // Verify data against signature using public key
-        match public_key.verify(&data.as_bytes(), &signature_bytes) {
+        match public_key.verify(&data.as_bytes(), &signature_der) {
             Ok(_) => Ok(()),
             Err(err) => Err(SignatureError::VerificationError {
                 name: err.to_string(),
