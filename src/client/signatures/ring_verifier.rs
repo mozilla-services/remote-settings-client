@@ -102,7 +102,7 @@ impl Verification for RingVerifier {
             }
             Err(err) => {
                 return Err(SignatureError::CertificateError {
-                    name:  err.to_string(),
+                    name: err.to_string(),
                 });
             }
         };
@@ -111,7 +111,7 @@ impl Verification for RingVerifier {
             Ok((_, x509)) => x509.tbs_certificate.subject_pki,
             Err(err) => {
                 return Err(SignatureError::CertificateError {
-                    name:  err.to_string(),
+                    name: err.to_string(),
                 });
             }
         };
@@ -152,7 +152,7 @@ impl Verification for RingVerifier {
             Ok(_) => Ok(()),
             Err(err) => Err(SignatureError::VerificationError {
                 name: err.to_string(),
-            })
+            }),
         }
     }
 }
