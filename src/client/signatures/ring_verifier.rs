@@ -7,7 +7,8 @@ use {
     super::{Collection, SignatureError, Verification},
     canonical_json::{to_string, CanonicalJSONError},
     log::debug,
-    ring::signature::{self},
+    ring::io::der,
+    ring::signature,
     serde_json::json,
     url::Url,
     viaduct::Request,
@@ -47,11 +48,10 @@ fn encode_dss_signature(signature_bytes: Vec<u8>) -> Vec<u8> {
     let r_bytes = &signature_bytes[0..sig_len / 2];
     let s_bytes = &signature_bytes[sig_len / 2..];
 
-    // Encode the two points.
+    // Encode the two integer points.
     let mut tuple_der: Vec<u8> = Vec::new();
     for val in [r_bytes, s_bytes].iter() {
-        // INTEGER = 0x02
-        tuple_der.push(0x02);
+        tuple_der.push(der::Tag::Integer as u8);
         tuple_der.push((val.len() + 1) as u8);
         if (val[0] & 0x80) != 0 {
             // Disambiguate negative number.
@@ -60,13 +60,10 @@ fn encode_dss_signature(signature_bytes: Vec<u8>) -> Vec<u8> {
         tuple_der.extend(*val);
     }
 
+    // Sequence tag followed by content length and bytes.
     let mut signature_der: Vec<u8> = Vec::new();
-    // CONSTRUCTED = 0x20
-    // SEQUENCE = 0x10 | CONSTRUCTED
-    signature_der.push(0x30);
-    // Total Length
+    signature_der.push(der::Tag::Sequence as u8);
     signature_der.push(tuple_der.len() as u8);
-    // Content
     signature_der.extend(tuple_der);
 
     signature_der
