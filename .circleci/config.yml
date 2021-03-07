@@ -32,8 +32,12 @@ jobs:
           name: Run tests
           command: cargo test --all
       - run:
-          name: Run optional features' tests
+          name: Run tests with ring
           command: cargo test --features=ring_verifier
+      - run:
+          name: Run tests with rc_crypto
+          command: cargo test --features=rc_crypto_verifier
+
 workflows:
   version: 2
   test:
