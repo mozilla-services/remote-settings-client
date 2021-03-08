@@ -24,36 +24,34 @@ pub struct ChangesetResponse {
 
 #[derive(Debug)]
 pub enum KintoError {
-    Error { name: String },
+    ClientError { name: String },
+    ServerError { name: String },
 }
 
 impl From<ViaductError> for KintoError {
     fn from(err: ViaductError) -> Self {
         info!("Viaduct error {}", err);
-        err.into()
+        KintoError::ClientError {
+            name: format!("Viaduct error: {}", err),
+        }
     }
 }
 
 impl From<serde_json::error::Error> for KintoError {
     fn from(err: serde_json::error::Error) -> Self {
         info!("JSON error: {}", err);
-        KintoError::Error {
-            name: format!("JSON error {}", err),
+        KintoError::ServerError {
+            name: format!("JSON error: {}", err),
         }
     }
 }
 
 impl From<ParseError> for KintoError {
     fn from(err: ParseError) -> Self {
-        info!("Parse error {}", err);
-        err.into()
-    }
-}
-
-impl From<std::num::ParseIntError> for KintoError {
-    fn from(err: std::num::ParseIntError) -> Self {
-        info!("Parse error {}", err);
-        err.into()
+        info!("Parse error: {}", err);
+        KintoError::ClientError {
+            name: format!("Parse error: {}", err),
+        }
     }
 }
 
@@ -67,12 +65,19 @@ pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result
         Some(v) => v,
         None => {
             // bucket/collection provided is unknown
-            return Err(KintoError::Error {
+            return Err(KintoError::ClientError {
                 name: format!("Unknown collection {}/{}", bid, cid),
             });
         }
     };
-    let last_modified = change["last_modified"].as_u64().unwrap();
+    let last_modified = match change["last_modified"].as_u64() {
+        Some(v) => v,
+        None => {
+            return Err(KintoError::ServerError {
+                name: format!("Bad server timestamp: {}", change["last_modified"]),
+            })
+        }
+    };
 
     debug!(
         "collection: {}, bucket: {}, last_modified: {}",
@@ -107,7 +112,7 @@ pub fn get_changeset(
     info!("The response is {:?}", resp);
 
     let size: i64 = match resp.headers.get("content-length").ok_or_else(|| -1) {
-        Ok(val) => val.parse()?,
+        Ok(val) => val.parse().unwrap_or(-1),
         Err(default) => default,
     };
 
@@ -116,4 +121,126 @@ pub fn get_changeset(
     let result: ChangesetResponse = resp.json()?;
 
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{get_latest_change_timestamp, KintoError};
+    use httpmock::Method::GET;
+    use httpmock::{Mock, MockServer};
+
+    #[test]
+    fn test_fetch() {
+        let mock_server = MockServer::start();
+        let mock_server_address = mock_server.url("");
+        let mock_body = r#"{
+            "metadata": {},
+            "changes": [
+                {
+                    "id": "123",
+                    "last_modified": 9173,
+                    "bucket":"main",
+                    "collection":"url-classifier-skip-urls",
+                    "host":"localhost:5000"
+                }
+            ],
+            "timestamp": 42
+        }"#;
+
+        let mut get_latest_change_mock = Mock::new()
+            .expect_method(GET)
+            .expect_path("/buckets/monitor/collections/changes/changeset")
+            .return_status(200)
+            .return_header("Content-Type", "application/json")
+            .return_body(mock_body)
+            .create_on(&mock_server);
+
+        let res =
+            get_latest_change_timestamp(&mock_server_address, "main", "url-classifier-skip-urls")
+                .unwrap();
+
+        assert_eq!(res, 9173);
+
+        get_latest_change_mock.delete();
+    }
+
+    #[test]
+    fn test_bad_url() {
+        let err =
+            get_latest_change_timestamp("%^", "main", "url-classifier-skip-urls").unwrap_err();
+        match err {
+            KintoError::ClientError { name } => {
+                assert_eq!(name, "Parse error: relative URL without a base")
+            }
+            _ => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_bad_json() {
+        let mock_server = MockServer::start();
+        let mock_server_address = mock_server.url("");
+        let mock_body = r#"{
+            "met :
+        }"#;
+
+        let mut get_latest_change_mock = Mock::new()
+            .expect_method(GET)
+            .expect_path("/buckets/monitor/collections/changes/changeset")
+            .return_status(200)
+            .return_header("Content-Type", "application/json")
+            .return_body(mock_body)
+            .create_on(&mock_server);
+
+        let err =
+            get_latest_change_timestamp(&mock_server_address, "main", "url-classifier-skip-urls")
+                .unwrap_err();
+
+        match err {
+            KintoError::ServerError { name } => {
+                assert!(name.contains("JSON error: control character"))
+            }
+            _ => assert!(false),
+        };
+
+        get_latest_change_mock.delete();
+    }
+
+    #[test]
+    fn test_bad_timestamp() {
+        let mock_server = MockServer::start();
+        let mock_server_address = mock_server.url("");
+        let mock_body = r#"{
+            "metadata": {},
+            "changes": [
+                {
+                    "id": "123",
+                    "last_modified": "foo",
+                    "bucket":"main",
+                    "collection":"url-classifier-skip-urls",
+                    "host":"localhost:5000"
+                }
+            ],
+            "timestamp": 42
+        }"#;
+
+        let mut get_latest_change_mock = Mock::new()
+            .expect_method(GET)
+            .expect_path("/buckets/monitor/collections/changes/changeset")
+            .return_status(200)
+            .return_header("Content-Type", "application/json")
+            .return_body(mock_body)
+            .create_on(&mock_server);
+
+        let err =
+            get_latest_change_timestamp(&mock_server_address, "main", "url-classifier-skip-urls")
+                .unwrap_err();
+
+        match err {
+            KintoError::ServerError { name } => assert_eq!(name, "Bad server timestamp: \"foo\""),
+            _ => assert!(false),
+        };
+
+        get_latest_change_mock.delete();
+    }
 }
