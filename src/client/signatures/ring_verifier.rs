@@ -5,9 +5,8 @@
 #[cfg(feature = "ring_verifier")]
 use {
     super::{Collection, SignatureError, Verification},
-    canonical_json::to_string,
+    canonical_json,
     log::debug,
-    ring::io::der,
     ring::signature,
     serde_json::json,
     url::Url,
@@ -16,8 +15,6 @@ use {
 };
 
 pub struct RingVerifier {}
-
-const SIGNATURE_LENGTH: usize = 96;
 
 #[cfg(feature = "ring_verifier")]
 impl From<NomErr<x509_errors::X509Error>> for SignatureError {
@@ -38,35 +35,6 @@ impl From<NomErr<x509_errors::PEMError>> for SignatureError {
 }
 
 impl RingVerifier {}
-
-fn encode_dss_signature(signature_bytes: Vec<u8>) -> Vec<u8> {
-    // See https://github.com/briansmith/ring/blob/3b1ece4/src/io/der_writer.rs
-    let sig_len = signature_bytes.len();
-    let r_bytes = &signature_bytes[0..sig_len / 2];
-    let s_bytes = &signature_bytes[sig_len / 2..];
-
-    // Encode the two integer points.
-    let mut tuple_der: Vec<u8> = Vec::new();
-    for val in [r_bytes, s_bytes].iter() {
-        tuple_der.push(der::Tag::Integer as u8);
-        if (val[0] & 0x80) != 0 {
-            // Disambiguate negative number.
-            tuple_der.push((val.len() + 1) as u8);
-            tuple_der.push(0x00);
-        } else {
-            tuple_der.push(val.len() as u8);
-        }
-        tuple_der.extend(*val);
-    }
-
-    // Sequence tag followed by content length and bytes.
-    let mut signature_der: Vec<u8> = Vec::new();
-    signature_der.push(der::Tag::Sequence as u8);
-    signature_der.push(tuple_der.len() as u8);
-    signature_der.extend(tuple_der);
-
-    signature_der
-}
 
 #[cfg(feature = "ring_verifier")]
 impl Verification for RingVerifier {
@@ -99,28 +67,20 @@ impl Verification for RingVerifier {
 
         // Get public key from certificate
         let public_key = signature::UnparsedPublicKey::new(
-            &signature::ECDSA_P384_SHA384_ASN1,
+            &signature::ECDSA_P384_SHA384_FIXED,
             &x509.tbs_certificate.subject_pki.subject_public_key.data,
         );
 
-        // Instantiate signature
+        // Read signature
         let b64_signature = collection.metadata["signature"]["signature"]
             .as_str()
             .unwrap_or("");
         let signature_bytes = base64::decode_config(&b64_signature, base64::URL_SAFE)?;
-        // Signature must be 96 bits.
-        if signature_bytes.len() != SIGNATURE_LENGTH {
-            return Err(SignatureError::InvalidSignature {
-                name: "Signature has invalid length for NIST P-384 / secp384r1".to_string(),
-            });
-        };
-        // Encode (r, s) in DER format.
-        let signature_der = encode_dss_signature(signature_bytes);
 
         // Serialized data.
         let mut sorted_records = collection.records.to_vec();
         sorted_records.sort_by(|a, b| (a["id"]).to_string().cmp(&b["id"].to_string()));
-        let serialized = to_string(&json!({
+        let serialized = canonical_json::to_string(&json!({
             "data": sorted_records,
             "last_modified": collection.timestamp.to_string()
         }))?;
@@ -128,7 +88,7 @@ impl Verification for RingVerifier {
         let data = format!("Content-Signature:\x00{}", serialized);
 
         // Verify data against signature using public key
-        match public_key.verify(&data.as_bytes(), &signature_der) {
+        match public_key.verify(&data.as_bytes(), &signature_bytes) {
             Ok(_) => Ok(()),
             Err(err) => Err(SignatureError::VerificationError {
                 name: err.to_string(),
