@@ -6,7 +6,6 @@ mod kinto_http;
 mod signatures;
 
 use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject};
-use log::debug;
 pub use signatures::{SignatureError, Verification};
 
 #[cfg(feature = "ring_verifier")]
@@ -33,18 +32,12 @@ impl From<KintoError> for ClientError {
     }
 }
 
-impl From<serde_json::error::Error> for ClientError {
-    fn from(err: serde_json::error::Error) -> Self {
-        err.into()
-    }
-}
-
 impl From<SignatureError> for ClientError {
     fn from(err: SignatureError) -> Self {
         match err {
             SignatureError::CertificateError { name } => ClientError::VerificationError { name },
             SignatureError::VerificationError { name } => ClientError::VerificationError { name },
-            SignatureError::InvalidSignature { name } => ClientError::Error { name },
+            SignatureError::InvalidSignature { name } => ClientError::VerificationError { name },
         }
     }
 }
@@ -195,12 +188,6 @@ impl Client {
             Some(expected),
         )?;
 
-        debug!(
-            "changeset.metadata {}",
-            serde_json::to_string_pretty(&changeset.metadata)?
-        );
-
-        // verify the signature
         let collection = Collection {
             bid: self.bucket_name.to_owned(),
             cid: self.collection_name.to_owned(),
@@ -210,6 +197,7 @@ impl Client {
         };
 
         self.verifier.verify(&collection)?;
+
         Ok(collection.records)
     }
 }
@@ -403,7 +391,7 @@ mod tests {
                 "changes": [],
                 "timestamp": 0
             }"#,
-            Err(ClientError::Error {
+            Err(ClientError::VerificationError {
                 name: "invalid signature error".to_owned(),
             }),
         );
