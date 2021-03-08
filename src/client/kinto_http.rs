@@ -4,7 +4,6 @@
 
 use log::{debug, info};
 use serde::Deserialize;
-use serde_json;
 use url::{ParseError, Url};
 use viaduct::{Error as ViaductError, Request};
 
@@ -57,27 +56,19 @@ impl From<ParseError> for KintoError {
 
 pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result<u64, KintoError> {
     let response = get_changeset(&server, "monitor", "changes", None)?;
-    let change = match response
+    let change = response
         .changes
         .iter()
         .find(|&x| x["bucket"] == bid && x["collection"] == cid)
-    {
-        Some(v) => v,
-        None => {
-            // bucket/collection provided is unknown
-            return Err(KintoError::ClientError {
-                name: format!("Unknown collection {}/{}", bid, cid),
-            });
-        }
-    };
-    let last_modified = match change["last_modified"].as_u64() {
-        Some(v) => v,
-        None => {
-            return Err(KintoError::ServerError {
-                name: format!("Bad server timestamp: {}", change["last_modified"]),
-            })
-        }
-    };
+        .ok_or(KintoError::ClientError {
+            name: format!("Unknown collection {}/{}", bid, cid),
+        })?;
+
+    let last_modified = change["last_modified"]
+        .as_u64()
+        .ok_or(KintoError::ServerError {
+            name: format!("Bad server timestamp: {}", change["last_modified"]),
+        })?;
 
     debug!(
         "collection: {}, bucket: {}, last_modified: {}",

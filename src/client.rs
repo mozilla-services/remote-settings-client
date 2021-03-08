@@ -59,6 +59,12 @@ pub struct ClientBuilder {
     verifier: Box<dyn Verification>,
 }
 
+impl Default for ClientBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClientBuilder {
     /// Constructs a new `ClientBuilder`.
     ///
