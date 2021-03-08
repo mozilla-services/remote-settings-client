@@ -31,7 +31,7 @@ fn main() {
     env_logger::init();
     set_backend(&ReqwestBackend).unwrap();
 
-    print!("Fetching records using RS client with default Verifier");
+    print!("Fetching records using RS client with default Verifier: ");
 
     let client = Client::builder()
         .collection_name("url-classifier-skip-urls")
@@ -42,7 +42,7 @@ fn main() {
         Err(error) => println!("FAILED ({:?})", error),
     };
 
-    print!("Fetching records using RS client with custom Verifier");
+    print!("Fetching records using RS client with custom Verifier: ");
 
     let client_with_custom_verifier = Client::builder()
         .collection_name("url-classifier-skip-urls")

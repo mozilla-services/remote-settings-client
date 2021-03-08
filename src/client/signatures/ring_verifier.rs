@@ -31,10 +31,12 @@ fn encode_dss_signature(signature_bytes: Vec<u8>) -> Vec<u8> {
     let mut tuple_der: Vec<u8> = Vec::new();
     for val in [r_bytes, s_bytes].iter() {
         tuple_der.push(der::Tag::Integer as u8);
-        tuple_der.push((val.len() + 1) as u8);
         if (val[0] & 0x80) != 0 {
             // Disambiguate negative number.
+            tuple_der.push((val.len() + 1) as u8);
             tuple_der.push(0x00);
+        } else {
+            tuple_der.push(val.len() as u8);
         }
         tuple_der.extend(*val);
     }
