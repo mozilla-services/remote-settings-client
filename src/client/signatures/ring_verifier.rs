@@ -5,7 +5,7 @@
 #[cfg(feature = "ring_verifier")]
 use {
     super::{Collection, SignatureError, Verification},
-    canonical_json::{to_string, CanonicalJSONError},
+    canonical_json::to_string,
     log::debug,
     ring::io::der,
     ring::signature,
@@ -31,13 +31,6 @@ impl From<x509_errors::X509Error> for SignatureError {
 #[cfg(feature = "ring_verifier")]
 impl From<x509_errors::PEMError> for SignatureError {
     fn from(err: x509_errors::PEMError) -> Self {
-        err.into()
-    }
-}
-
-#[cfg(feature = "ring_verifier")]
-impl From<CanonicalJSONError> for SignatureError {
-    fn from(err: CanonicalJSONError) -> Self {
         err.into()
     }
 }

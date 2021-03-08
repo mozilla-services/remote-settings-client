@@ -6,6 +6,7 @@ use crate::client::Collection;
 use base64;
 use url::ParseError;
 use viaduct::Error as ViaductError;
+use canonical_json::CanonicalJSONError;
 
 pub mod default_verifier;
 #[cfg(feature = "ring_verifier")]
@@ -68,5 +69,11 @@ impl From<base64::DecodeError> for SignatureError {
         SignatureError::InvalidSignature {
             name: err.to_string(),
         }
+    }
+}
+
+impl From<CanonicalJSONError> for SignatureError {
+    fn from(err: CanonicalJSONError) -> Self {
+        err.into()
     }
 }
