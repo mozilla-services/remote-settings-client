@@ -1,66 +1,60 @@
 # Remote Settings Client
 
-A Remote Settings Client built using Rust to read collection data.
+A Rust Remote Settings Client to fetch collection data.
 
 - Read-Only
 - Customizable Signature Verification
 <!-- - Cross-Platform
 - Robust -->
-- Rust!
 
-## Example
+Uses Mozilla's [viaduct](https://github.com/mozilla/application-services/tree/main/components/viaduct).
 
-Below example uses [Viaduct](https://github.com/mozilla/application-services/tree/master/components/viaduct) and [Viaduct-Reqwest](https://github.com/mozilla/application-services/tree/master/components/support/viaduct-reqwest), so your `Cargo.toml` could look like this:
+## Quick start
+
+`Cargo.toml`:
 
 ```toml
 [dependencies]
-log = "0.4.0"
-env_logger = "0.7.1"
+remote-settings-client = "0.1"
 viaduct = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
 viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
 ```
 
-### Fetching Records from Collection
-```rust,no_run
-use remote_settings::{Client};
-pub use viaduct::{set_backend};
-ures to allow for optional signature implementations for user
+Minimal example:
+
+```rust
+use remote_settings_client::Client;
+pub use viaduct::set_backend;
 pub use viaduct_reqwest::ReqwestBackend;
 
 fn main() {
-
   set_backend(&ReqwestBackend).unwrap();
 
-  // we pass None for Verifier parameter to fall back to default verifier implementation
-  // here server_url and bucket_name will be set to default values
-  let client = Client::builder().collection_name("example-collection").build();
+  let client = Client::builder()
+    .collection_name("search-config")
+    .build();
 
   match client.get() {
-        Ok(records) => println!("{:?}", records),
-        Err(error) => println!("Error fetching/verifying records": {:?}", error)
+    Ok(records) => println!("{:?}", records),
+    Err(error) => println!("Error fetching/verifying records: {:?}", error),
   };
-  ...
 }
 ```
 
-### Logging
+See also our [demo project](rs-client-demo)!
 
-Dependencies: [log](https://docs.rs/log), [env_logger](https://docs.rs/env_logger)
+## Logging
 
-```toml
-[dependencies]
-env_logger = "0.7.1"
-```
+Using [env_logger](https://docs.rs/env_logger), the log level can be set via an environ variable:
 
-For logging, run `RUSTLOG={debug/info} cargo run` to see debug/info log messages from the Remote Settings client (error messages are printed by default)
+`RUSTLOG={debug/info} cargo run`
 
-```rust,no_run
+```rust
 fn main() {
   env_logger::init() // initialize logger
+  ..
 }
 ```
-
-For more examples, go to the [demo project](rs-client-demo)
 
 ## License
 
