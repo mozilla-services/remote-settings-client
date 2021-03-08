@@ -12,12 +12,30 @@ use {
     serde_json::json,
     url::Url,
     viaduct::Request,
-    x509_parser,
+    x509_parser::{self, error as x509_errors, nom::Err as NomErr},
 };
 
 pub struct RingVerifier {}
 
 const SIGNATURE_LENGTH: usize = 96;
+
+#[cfg(feature = "ring_verifier")]
+impl From<NomErr<x509_errors::X509Error>> for SignatureError {
+    fn from(err: NomErr<x509_errors::X509Error>) -> Self {
+        SignatureError::CertificateError {
+            name: err.to_string(),
+        }
+    }
+}
+
+#[cfg(feature = "ring_verifier")]
+impl From<NomErr<x509_errors::PEMError>> for SignatureError {
+    fn from(err: NomErr<x509_errors::PEMError>) -> Self {
+        SignatureError::CertificateError {
+            name: err.to_string(),
+        }
+    }
+}
 
 impl RingVerifier {}
 
@@ -56,11 +74,11 @@ impl Verification for RingVerifier {
         debug!("Verifying using x509-parser and ring");
 
         // Fetch certificate PEM (public key).
-        let x5u = collection.metadata["signature"]["x5u"]
-            .as_str()
-            .ok_or_else(|| SignatureError::InvalidSignature {
+        let x5u = collection.metadata["signature"]["x5u"].as_str().ok_or(
+            SignatureError::InvalidSignature {
                 name: "x5u field not present in signature".to_owned(),
-            })?;
+            },
+        )?;
 
         debug!("Fetching certificate {}", x5u);
         let resp = Request::get(Url::parse(&x5u)?).send()?;
@@ -69,39 +87,26 @@ impl Verification for RingVerifier {
         // Use this command to debug:
         // ``openssl x509 -inform PEM -in cert.pem -text``
         let pem_bytes = &resp.body;
-        let pem = match x509_parser::pem::parse_x509_pem(pem_bytes) {
-            Ok((_, pem)) => {
-                if pem.label != "CERTIFICATE" {
-                    return Err(SignatureError::CertificateError {
-                        name: "PEM is not a certificate".to_string(),
-                    });
-                }
-                pem
-            }
-            Err(err) => {
-                return Err(SignatureError::CertificateError {
-                    name: err.to_string(),
-                });
-            }
-        };
+        let (_, pem) = x509_parser::pem::parse_x509_pem(pem_bytes)?;
+        if pem.label != "CERTIFICATE" {
+            return Err(SignatureError::CertificateError {
+                name: "PEM is not a certificate".to_string(),
+            });
+        }
+
         // Extract SubjectPublicKeyInfo
-        let spki = match x509_parser::parse_x509_certificate(&pem.contents) {
-            Ok((_, x509)) => x509.tbs_certificate.subject_pki,
-            Err(err) => {
-                return Err(SignatureError::CertificateError {
-                    name: err.to_string(),
-                });
-            }
-        };
+        let (_, x509) = x509_parser::parse_x509_certificate(&pem.contents)?;
 
         // Get public key from certificate
         let public_key = signature::UnparsedPublicKey::new(
             &signature::ECDSA_P384_SHA384_ASN1,
-            &spki.subject_public_key.data,
+            &x509.tbs_certificate.subject_pki.subject_public_key.data,
         );
 
         // Instantiate signature
-        let b64_signature = collection.metadata["signature"]["signature"].as_str().unwrap_or("");
+        let b64_signature = collection.metadata["signature"]["signature"]
+            .as_str()
+            .unwrap_or("");
         let signature_bytes = base64::decode_config(&b64_signature, base64::URL_SAFE)?;
         // Signature must be 96 bits.
         if signature_bytes.len() != SIGNATURE_LENGTH {

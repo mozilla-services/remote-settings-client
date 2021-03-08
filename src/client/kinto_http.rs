@@ -108,9 +108,9 @@ pub fn get_changeset(
 
     info!("The response is {:?}", resp);
 
-    let size: i64 = match resp.headers.get("content-length").ok_or_else(|| -1) {
-        Ok(val) => val.parse().unwrap_or(-1),
-        Err(default) => default,
+    let size: i64 = match resp.headers.get("content-length") {
+        Some(val) => val.parse().unwrap_or(-1),
+        None => -1,
     };
 
     debug!("Download {:?} bytes...", size);
