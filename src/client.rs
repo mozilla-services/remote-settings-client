@@ -42,7 +42,7 @@ impl From<SignatureError> for ClientError {
     }
 }
 
-/// Response body from remote-settings server
+/// Response body from Remote Settings server
 #[derive(Debug, PartialEq)]
 pub struct Collection {
     pub bid: String,
@@ -113,37 +113,39 @@ impl ClientBuilder {
     }
 }
 
-/// Handles requests to Remote-Settings
+/// Client to fetch Remote Settings data.
+///
+/// **Note**: By default, signatures are not verified. Use the ``ring_verifier`` feature to enable signatures verification.
+/// See [`Verification`] for implementing a custom signature verifier.
+///
 /// # Examples
-/// Create Client with collection_name and without custom Verifier
+/// Create a `Client` for the `cid` collection on the production server:
 /// ```rust
-/// # use remote_settings_client::{SignatureError, Verification};
-/// # use remote_settings_client::{Client, Collection};
+/// # use remote_settings_client::Client;
+///
 /// # fn main() {
-///   let client = Client::builder().collection_name("collection_name").build();
+/// let client = Client::builder()
+///   .collection_name("cid")
+///   .build();
 /// # }
 /// ```
-///
-/// Create Client with custom Verifier
+/// Or for a specific server or bucket:
 /// ```rust
-/// # use remote_settings_client::{SignatureError, Verification};
-/// # use remote_settings_client::{Client, Collection};
-/// struct CustomVerifier{}
-///
-/// impl Verification for CustomVerifier {
-///    fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
-///        Ok(()) // everything is verified!
-///    }
-/// }
+/// # use remote_settings_client::Client;
 ///
 /// # fn main() {
-///   let client = Client::builder().collection_name("collection_name").verifier(Box::new(CustomVerifier{})).build();
+/// let client = Client::builder()
+///   .server_url("https://settings.stage.mozaws.net/v1")
+///   .bucket_name("main-preview")
+///   .collection_name("cid")
+///   .build();
 /// # }
 /// ```
 pub struct Client {
     server_url: String,
     bucket_name: String,
     collection_name: String,
+    // Box<dyn Trait> is necessary since implementation of Verification can be of any size unknown at compile time
     verifier: Box<dyn Verification>,
 }
 
@@ -166,20 +168,24 @@ impl Client {
         ClientBuilder::new()
     }
 
-    /// Fetches records for a given collection from the remote-settings server
+    /// Fetches records from the Remote Settings server for a given collection
     ///
     /// # Examples
-    /// ```text
-    /// fn main() {
-    ///   match Client::builder().collection_name("collection").build().get() {
-    ///     Ok(records) => println!("{:?}", records),
-    ///     Err(error) => println!("Error fetching/verifying records: {:?}", error)
-    ///   };
-    /// }
+    /// ```rust
+    /// # use remote_settings_client::Client;
+    /// # use viaduct::set_backend;
+    /// # pub use viaduct_reqwest::ReqwestBackend;
+    /// # fn main() {
+    /// # set_backend(&ReqwestBackend).unwrap();
+    /// match Client::builder().collection_name("url-classifier-skip-urls").build().get() {
+    ///   Ok(records) => println!("{:?}", records),
+    ///   Err(error) => println!("Error fetching/verifying records: {:?}", error)
+    /// };
+    /// # }
     /// ```
     ///
     /// # Errors
-    /// If an error occurs while fetching records, ```ClientError``` is returned
+    /// If an error occurs while fetching or verifying records, a [`ClientError`] is returned.
     pub fn get(&self) -> Result<Vec<KintoObject>, ClientError> {
         let expected = get_latest_change_timestamp(
             &self.server_url,

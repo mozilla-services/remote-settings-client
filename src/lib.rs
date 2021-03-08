@@ -1,6 +1,6 @@
-//! # Remote-Settings Client
+//! # Remote Settings Client
 //!
-//! A library for fetching Remote-Settings data
+//! A library for fetching Remote Settings data
 
 pub mod client;
 

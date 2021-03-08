@@ -1,6 +1,6 @@
-# Remote-Settings-Client
+# Remote Settings Client
 
-A Remote-Settings Client built using Rust to read collection data.
+A Remote Settings Client built using Rust to read collection data.
 
 - Read-Only
 - Customizable Signature Verification
@@ -28,13 +28,13 @@ ures to allow for optional signature implementations for user
 pub use viaduct_reqwest::ReqwestBackend;
 
 fn main() {
-  
+
   set_backend(&ReqwestBackend).unwrap();
 
   // we pass None for Verifier parameter to fall back to default verifier implementation
   // here server_url and bucket_name will be set to default values
   let client = Client::builder().collection_name("example-collection").build();
-  
+
   match client.get() {
         Ok(records) => println!("{:?}", records),
         Err(error) => println!("Error fetching/verifying records": {:?}", error)
@@ -52,7 +52,7 @@ Dependencies: [log](https://docs.rs/log), [env_logger](https://docs.rs/env_logge
 env_logger = "0.7.1"
 ```
 
-For logging, run `RUSTLOG={debug/info} cargo run` to see debug/info log messages from the Remote-Settings-Client (error messages are printed by default)
+For logging, run `RUSTLOG={debug/info} cargo run` to see debug/info log messages from the Remote Settings client (error messages are printed by default)
 
 ```rust,no_run
 fn main() {
