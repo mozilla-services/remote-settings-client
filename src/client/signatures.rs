@@ -4,9 +4,9 @@
 
 use crate::client::Collection;
 use base64;
+use canonical_json::CanonicalJSONError;
 use url::ParseError;
 use viaduct::Error as ViaductError;
-use canonical_json::CanonicalJSONError;
 
 pub mod default_verifier;
 #[cfg(feature = "ring_verifier")]

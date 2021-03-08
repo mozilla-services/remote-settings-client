@@ -21,20 +21,6 @@ const SIGNATURE_LENGTH: usize = 96;
 
 impl RingVerifier {}
 
-#[cfg(feature = "ring_verifier")]
-impl From<x509_errors::X509Error> for SignatureError {
-    fn from(err: x509_errors::X509Error) -> Self {
-        err.into()
-    }
-}
-
-#[cfg(feature = "ring_verifier")]
-impl From<x509_errors::PEMError> for SignatureError {
-    fn from(err: x509_errors::PEMError) -> Self {
-        err.into()
-    }
-}
-
 fn encode_dss_signature(signature_bytes: Vec<u8>) -> Vec<u8> {
     // See https://github.com/briansmith/ring/blob/3b1ece4/src/io/der_writer.rs
     let sig_len = signature_bytes.len();
@@ -106,7 +92,7 @@ impl Verification for RingVerifier {
             }
         };
 
-        // Get public key from certificates
+        // Get public key from certificate
         let public_key = signature::UnparsedPublicKey::new(
             &signature::ECDSA_P384_SHA384_ASN1,
             &spki.subject_public_key.data,
