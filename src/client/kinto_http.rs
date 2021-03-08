@@ -97,10 +97,7 @@ pub fn get_changeset(
         "The expected timestamp for bucket={}, collection={} is {:?}",
         bid, cid, expected
     );
-    let cache_bust = match expected {
-        Some(v) => v,
-        None => 0,
-    };
+    let cache_bust = expected.unwrap_or(0);
     let url = format!(
         "{}/buckets/{}/collections/{}/changeset?_expected={}",
         server, bid, cid, cache_bust

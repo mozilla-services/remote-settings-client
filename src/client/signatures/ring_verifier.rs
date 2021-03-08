@@ -12,7 +12,7 @@ use {
     serde_json::json,
     url::Url,
     viaduct::Request,
-    x509_parser::{self, error as x509_errors},
+    x509_parser,
 };
 
 pub struct RingVerifier {}
@@ -99,10 +99,7 @@ impl Verification for RingVerifier {
         );
 
         // Instantiate signature
-        let b64_signature = match collection.metadata["signature"]["signature"].as_str() {
-            Some(b64_signature) => b64_signature,
-            None => "",
-        };
+        let b64_signature = collection.metadata["signature"]["signature"].as_str().unwrap_or("");
         let signature_bytes = base64::decode_config(&b64_signature, base64::URL_SAFE)?;
         // Signature must be 96 bits.
         if signature_bytes.len() != SIGNATURE_LENGTH {
@@ -118,7 +115,7 @@ impl Verification for RingVerifier {
         sorted_records.sort_by(|a, b| (a["id"]).to_string().cmp(&b["id"].to_string()));
         let serialized = to_string(&json!({
             "data": sorted_records,
-            "last_modified": collection.timestamp.to_string().to_owned()
+            "last_modified": collection.timestamp.to_string()
         }))?;
 
         let data = format!("Content-Signature:\x00{}", serialized);

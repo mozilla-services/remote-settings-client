@@ -27,8 +27,8 @@ pub enum ClientError {
 impl From<KintoError> for ClientError {
     fn from(err: KintoError) -> Self {
         match err {
-            KintoError::ServerError { name } => return ClientError::Error { name: name },
-            KintoError::ClientError { name } => return ClientError::Error { name: name },
+            KintoError::ServerError { name } => ClientError::Error { name },
+            KintoError::ClientError { name } => ClientError::Error { name },
         }
     }
 }
@@ -43,12 +43,12 @@ impl From<SignatureError> for ClientError {
     fn from(err: SignatureError) -> Self {
         match err {
             SignatureError::CertificateError { name } => {
-                return ClientError::VerificationError { name: name }
+                ClientError::VerificationError { name }
             }
             SignatureError::VerificationError { name } => {
-                return ClientError::VerificationError { name: name }
+                ClientError::VerificationError { name }
             }
-            SignatureError::InvalidSignature { name } => return ClientError::Error { name: name },
+            SignatureError::InvalidSignature { name } => ClientError::Error { name },
         }
     }
 }
@@ -75,12 +75,12 @@ impl ClientBuilder {
     ///
     /// This is the same as `Client::builder()`.
     pub fn new() -> ClientBuilder {
-        return ClientBuilder {
+        ClientBuilder {
             server_url: DEFAULT_SERVER_URL.to_owned(),
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
             verifier: Box::new(DefaultVerifier {}),
-        };
+        }
     }
 
     /// Add custom server url to Client
@@ -154,12 +154,12 @@ pub struct Client {
 
 impl Default for Client {
     fn default() -> Self {
-        return Client {
+        Client {
             server_url: DEFAULT_SERVER_URL.to_owned(),
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
             verifier: Box::new(DefaultVerifier {}),
-        };
+        }
     }
 }
 
