@@ -43,6 +43,10 @@ fn main() {
 
 See also our [demo project](rs-client-demo)!
 
+## Documentation
+
+[Crate documentation](https://docs.rs/remote_settings_client)
+
 ## Logging
 
 Using [env_logger](https://docs.rs/env_logger), the log level can be set via an environ variable:

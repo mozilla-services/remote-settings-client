@@ -42,7 +42,7 @@ impl From<SignatureError> for ClientError {
     }
 }
 
-/// Response body from Remote Settings server
+/// Representation of a collection on the server
 #[derive(Debug, PartialEq)]
 pub struct Collection {
     pub bid: String,
@@ -115,9 +115,6 @@ impl ClientBuilder {
 
 /// Client to fetch Remote Settings data.
 ///
-/// **Note**: By default, signatures are not verified. Use the ``ring_verifier`` feature to enable signatures verification.
-/// See [`Verification`] for implementing a custom signature verifier.
-///
 /// # Examples
 /// Create a `Client` for the `cid` collection on the production server:
 /// ```rust
@@ -141,11 +138,22 @@ impl ClientBuilder {
 ///   .build();
 /// # }
 /// ```
+///
+/// ## Signature verification
+///
+/// When no verifier is explicit specified, the default is chosen based on the enabled crate features:
+///
+/// | Features        | Description                                |
+/// |-----------------|--------------------------------------------|
+/// | `[]`            | No signature verification of data          |
+/// | `ring_verifier` | Uses the `ring` crate to verify signatures |
+///
+/// See [`Verification`] for implementing a custom signature verifier.
 pub struct Client {
     server_url: String,
     bucket_name: String,
     collection_name: String,
-    // Box<dyn Trait> is necessary since implementation of Verification can be of any size unknown at compile time
+    // Box<dyn Trait> is necessary since implementation of [`Verification`] can be of any size unknown at compile time
     verifier: Box<dyn Verification>,
 }
 
@@ -162,13 +170,11 @@ impl Default for Client {
 
 impl Client {
     /// Creates a `ClientBuilder` to configure a `Client`.
-    ///
-    /// This is the same as `ClientBuilder::new()`.
     pub fn builder() -> ClientBuilder {
         ClientBuilder::new()
     }
 
-    /// Fetches records from the Remote Settings server for a given collection
+    /// Fetches records from the server for a given collection
     ///
     /// # Examples
     /// ```rust
@@ -177,7 +183,8 @@ impl Client {
     /// # pub use viaduct_reqwest::ReqwestBackend;
     /// # fn main() {
     /// # set_backend(&ReqwestBackend).unwrap();
-    /// match Client::builder().collection_name("url-classifier-skip-urls").build().get() {
+    /// # let client = Client::builder().collection_name("url-classifier-skip-urls").build();
+    /// match client.get() {
     ///   Ok(records) => println!("{:?}", records),
     ///   Err(error) => println!("Error fetching/verifying records: {:?}", error)
     /// };

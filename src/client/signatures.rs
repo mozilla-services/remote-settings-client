@@ -43,6 +43,8 @@ pub trait Verification {
     /// # Errors
     /// If an error occurs while verifying, ```SignatureError``` is returned
     ///
+    /// If the error is related to the certificate, ```SignatureError::CertificateError``` is returned
+    ///
     /// If the signature format or content is invalid, ```SignatureError::InvalidSignature``` is returned
     ///
     /// If the signature does not match the content, ```SignatureError::VerificationError``` is returned
