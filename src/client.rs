@@ -6,14 +6,13 @@ mod kinto_http;
 mod signatures;
 
 use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject};
-use log::debug;
 pub use signatures::{SignatureError, Verification};
 
-#[cfg(feature = "openssl_verifier")]
-use crate::client::signatures::openssl_verifier::OpenSSLVerifier as AlwaysAcceptsVerifier;
+#[cfg(feature = "ring_verifier")]
+use crate::client::signatures::ring_verifier::RingVerifier as DefaultVerifier;
 
-#[cfg(not(feature = "openssl_verifier"))]
-use crate::client::signatures::default_verifier::DefaultVerifier as AlwaysAcceptsVerifier;
+#[cfg(not(feature = "ring_verifier"))]
+use crate::client::signatures::default_verifier::DefaultVerifier;
 
 pub const DEFAULT_SERVER_URL: &str = "https://firefox.settings.services.mozilla.com/v1";
 pub const DEFAULT_BUCKET_NAME: &str = "main";
@@ -27,24 +26,18 @@ pub enum ClientError {
 impl From<KintoError> for ClientError {
     fn from(err: KintoError) -> Self {
         match err {
-            KintoError::Error { name } => return ClientError::Error { name: name },
+            KintoError::ServerError { name } => ClientError::Error { name },
+            KintoError::ClientError { name } => ClientError::Error { name },
         }
-    }
-}
-
-impl From<serde_json::error::Error> for ClientError {
-    fn from(err: serde_json::error::Error) -> Self {
-        err.into()
     }
 }
 
 impl From<SignatureError> for ClientError {
     fn from(err: SignatureError) -> Self {
         match err {
-            SignatureError::VerificationError { name } => {
-                return ClientError::VerificationError { name: name }
-            }
-            SignatureError::InvalidSignature { name } => return ClientError::Error { name: name },
+            SignatureError::CertificateError { name } => ClientError::VerificationError { name },
+            SignatureError::VerificationError { name } => ClientError::VerificationError { name },
+            SignatureError::InvalidSignature { name } => ClientError::VerificationError { name },
         }
     }
 }
@@ -66,17 +59,23 @@ pub struct ClientBuilder {
     verifier: Box<dyn Verification>,
 }
 
+impl Default for ClientBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ClientBuilder {
     /// Constructs a new `ClientBuilder`.
     ///
     /// This is the same as `Client::builder()`.
     pub fn new() -> ClientBuilder {
-        return ClientBuilder {
+        ClientBuilder {
             server_url: DEFAULT_SERVER_URL.to_owned(),
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
-            verifier: Box::new(AlwaysAcceptsVerifier {}),
-        };
+            verifier: Box::new(DefaultVerifier {}),
+        }
     }
 
     /// Add custom server url to Client
@@ -150,12 +149,12 @@ pub struct Client {
 
 impl Default for Client {
     fn default() -> Self {
-        return Client {
+        Client {
             server_url: DEFAULT_SERVER_URL.to_owned(),
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
-            verifier: Box::new(AlwaysAcceptsVerifier {}),
-        };
+            verifier: Box::new(DefaultVerifier {}),
+        }
     }
 }
 
@@ -195,12 +194,6 @@ impl Client {
             Some(expected),
         )?;
 
-        debug!(
-            "changeset.metadata {}",
-            serde_json::to_string_pretty(&changeset.metadata)?
-        );
-
-        // verify the signature
         let collection = Collection {
             bid: self.bucket_name.to_owned(),
             cid: self.collection_name.to_owned(),
@@ -210,6 +203,7 @@ impl Client {
         };
 
         self.verifier.verify(&collection)?;
+
         Ok(collection.records)
     }
 }
@@ -253,7 +247,7 @@ mod tests {
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
-        set_backend(&ReqwestBackend).unwrap();
+        let _ = set_backend(&ReqwestBackend);
     }
 
     fn test_get(
@@ -286,6 +280,41 @@ mod tests {
 
         get_changeset_mock.delete();
         get_latest_change_mock.delete();
+    }
+
+    #[test]
+    fn test_unknown_collection() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mock_server_address = mock_server.url("");
+
+        test_get(
+            &mock_server,
+            Client::builder()
+                .server_url(&mock_server_address)
+                .collection_name("url-classifier-skip-urls")
+                .verifier(Box::new(VerifierWithNoError {}))
+                .build(),
+            r#"{
+                "metadata": {},
+                "changes": [],
+                "timestamp": 0
+            }"#,
+            r#"{
+                "metadata": {
+                    "data": "test"
+                },
+                "changes": [],
+                "timestamp": 0
+            }"#,
+            Err(ClientError::Error {
+                name: format!(
+                    "Unknown collection {}/{}",
+                    "main", "url-classifier-skip-urls"
+                ),
+            }),
+        );
     }
 
     #[test]
@@ -368,35 +397,8 @@ mod tests {
                 "changes": [],
                 "timestamp": 0
             }"#,
-            Err(ClientError::Error {
+            Err(ClientError::VerificationError {
                 name: "invalid signature error".to_owned(),
-            }),
-        );
-
-        test_get(
-            &mock_server,
-            Client::builder()
-                .server_url(&mock_server_address)
-                .collection_name("url-classifier-skip-urls")
-                .verifier(Box::new(VerifierWithNoError {}))
-                .build(),
-            r#"{
-                "metadata": {},
-                "changes": [],
-                "timestamp": 0
-            }"#,
-            r#"{
-                "metadata": {
-                    "data": "test"
-                },
-                "changes": [],
-                "timestamp": 0
-            }"#,
-            Err(ClientError::Error {
-                name: format!(
-                    "Unknown collection {}/{}",
-                    "main", "url-classifier-skip-urls"
-                ),
             }),
         );
     }
