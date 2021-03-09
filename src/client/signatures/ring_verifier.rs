@@ -1,42 +1,19 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
-#[cfg(feature = "ring_verifier")]
 use {
+    super::x509::fetch_public_key,
     super::{Collection, SignatureError, Verification},
     canonical_json,
     log::debug,
     ring::signature,
     serde_json::json,
-    url::Url,
-    viaduct::Request,
-    x509_parser::{self, error as x509_errors, nom::Err as NomErr},
 };
 
 pub struct RingVerifier {}
 
-#[cfg(feature = "ring_verifier")]
-impl From<NomErr<x509_errors::X509Error>> for SignatureError {
-    fn from(err: NomErr<x509_errors::X509Error>) -> Self {
-        SignatureError::CertificateError {
-            name: err.to_string(),
-        }
-    }
-}
-
-#[cfg(feature = "ring_verifier")]
-impl From<NomErr<x509_errors::PEMError>> for SignatureError {
-    fn from(err: NomErr<x509_errors::PEMError>) -> Self {
-        SignatureError::CertificateError {
-            name: err.to_string(),
-        }
-    }
-}
-
 impl RingVerifier {}
 
-#[cfg(feature = "ring_verifier")]
 impl Verification for RingVerifier {
     fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
         debug!("Verifying using x509-parser and ring");
@@ -48,27 +25,12 @@ impl Verification for RingVerifier {
             },
         )?;
 
-        debug!("Fetching certificate {}", x5u);
-        let resp = Request::get(Url::parse(&x5u)?).send()?;
-
-        // Extram PEM.
-        // Use this command to debug:
-        // ``openssl x509 -inform PEM -in cert.pem -text``
-        let pem_bytes = &resp.body;
-        let (_, pem) = x509_parser::pem::parse_x509_pem(pem_bytes)?;
-        if pem.label != "CERTIFICATE" {
-            return Err(SignatureError::CertificateError {
-                name: "PEM is not a certificate".to_string(),
-            });
-        }
-
-        // Extract SubjectPublicKeyInfo
-        let (_, x509) = x509_parser::parse_x509_certificate(&pem.contents)?;
+        let public_key_bytes = fetch_public_key(&x5u)?;
 
         // Get public key from certificate
         let public_key = signature::UnparsedPublicKey::new(
             &signature::ECDSA_P384_SHA384_FIXED,
-            &x509.tbs_certificate.subject_pki.subject_public_key.data,
+            &public_key_bytes,
         );
 
         // Read signature

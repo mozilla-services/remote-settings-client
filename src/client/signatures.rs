@@ -4,8 +4,6 @@
 
 use crate::client::Collection;
 use canonical_json::CanonicalJSONError;
-use url::ParseError;
-use viaduct::Error as ViaductError;
 
 pub mod default_verifier;
 
@@ -15,7 +13,8 @@ pub mod ring_verifier;
 #[cfg(feature = "rc_crypto_verifier")]
 pub mod rc_crypto_verifier;
 
-use log::debug;
+#[cfg(any(feature = "ring_verifier", feature = "rc_crypto_verifier"))]
+pub mod x509;
 
 /// A trait for signature verification of collection data.
 ///
@@ -61,20 +60,6 @@ pub enum SignatureError {
     CertificateError { name: String },
     InvalidSignature { name: String },
     VerificationError { name: String },
-}
-
-impl From<ViaductError> for SignatureError {
-    fn from(err: ViaductError) -> Self {
-        debug!("viaduct error here {}", err);
-        err.into()
-    }
-}
-
-impl From<ParseError> for SignatureError {
-    fn from(err: ParseError) -> Self {
-        debug!("parse error here {}", err);
-        err.into()
-    }
 }
 
 impl From<base64::DecodeError> for SignatureError {

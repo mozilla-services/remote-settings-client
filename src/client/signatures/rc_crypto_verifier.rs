@@ -1,93 +1,35 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
-#[cfg(feature = "rc_crypto_verifier")]
 use {
+    super::x509::fetch_public_key,
     super::{Collection, SignatureError, Verification},
-    canonical_json::{to_string, CanonicalJSONError},
+    canonical_json,
     log::debug,
     rc_crypto::signature,
     serde_json::json,
-    url::Url,
-    viaduct::Request,
-    x509_parser::{self, error as x509_errors},
 };
 
 pub struct RcCryptoVerifier {}
 
 impl RcCryptoVerifier {}
 
-#[cfg(feature = "rc_crypto_verifier")]
-impl From<x509_errors::X509Error> for SignatureError {
-    fn from(err: x509_errors::X509Error) -> Self {
-        err.into()
-    }
-}
-
-#[cfg(feature = "rc_crypto_verifier")]
-impl From<x509_errors::PEMError> for SignatureError {
-    fn from(err: x509_errors::PEMError) -> Self {
-        err.into()
-    }
-}
-
-#[cfg(feature = "rc_crypto_verifier")]
-impl From<CanonicalJSONError> for SignatureError {
-    fn from(err: CanonicalJSONError) -> Self {
-        err.into()
-    }
-}
-
-#[cfg(feature = "rc_crypto_verifier")]
 impl Verification for RcCryptoVerifier {
     fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
-        debug!("Verifying using x509-parser and ring");
+        debug!("Verifying using x509-parser and rc_crypto");
 
         // Fetch certificate PEM (public key).
-        let x5u = collection.metadata["signature"]["x5u"]
-            .as_str()
-            .ok_or_else(|| SignatureError::InvalidSignature {
+        let x5u = collection.metadata["signature"]["x5u"].as_str().ok_or(
+            SignatureError::InvalidSignature {
                 name: "x5u field not present in signature".to_owned(),
-            })?;
+            },
+        )?;
 
-        debug!("Fetching certificate {}", x5u);
-        let resp = Request::get(Url::parse(&x5u)?).send()?;
-
-        // Extram PEM.
-        // Use this command to debug:
-        // ``openssl x509 -inform PEM -in cert.pem -text``
-        let pem_bytes = &resp.body;
-        let pem = match x509_parser::pem::parse_x509_pem(pem_bytes) {
-            Ok((_, pem)) => {
-                if pem.label != "CERTIFICATE" {
-                    return Err(SignatureError::CertificateError {
-                        name: "PEM is not a certificate".to_string(),
-                    });
-                }
-                pem
-            }
-            Err(err) => {
-                return Err(SignatureError::CertificateError {
-                    name:  err.to_string(),
-                });
-            }
-        };
-        // Extract SubjectPublicKeyInfo
-        let spki = match x509_parser::parse_x509_certificate(&pem.contents) {
-            Ok((_, x509)) => x509.tbs_certificate.subject_pki,
-            Err(err) => {
-                return Err(SignatureError::CertificateError {
-                    name:  err.to_string(),
-                });
-            }
-        };
+        let public_key_bytes = fetch_public_key(&x5u)?;
 
         // Get public key from certificates
-        let public_key = signature::UnparsedPublicKey::new(
-            &signature::ECDSA_P384_SHA384,
-            &spki.subject_public_key.data
-        );
+        let public_key =
+            signature::UnparsedPublicKey::new(&signature::ECDSA_P384_SHA384, &public_key_bytes);
 
         // Instantiate signature
         let b64_signature = match collection.metadata["signature"]["signature"].as_str() {
@@ -99,7 +41,7 @@ impl Verification for RcCryptoVerifier {
         // Serialized data.
         let mut sorted_records = collection.records.to_vec();
         sorted_records.sort_by(|a, b| (a["id"]).to_string().cmp(&b["id"].to_string()));
-        let serialized = to_string(&json!({
+        let serialized = canonical_json::to_string(&json!({
             "data": sorted_records,
             "last_modified": collection.timestamp.to_string().to_owned()
         }))?;
@@ -111,7 +53,7 @@ impl Verification for RcCryptoVerifier {
             Ok(_) => Ok(()),
             Err(err) => Err(SignatureError::VerificationError {
                 name: err.to_string(),
-            })
+            }),
         }
     }
 }
