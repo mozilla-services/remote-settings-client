@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 use env_logger;
 use remote_settings_client::{Client, Collection, SignatureError, Verification};
+use remote_settings_client::client::FileStorage;
 use serde::Deserialize;
 pub use url::{ParseError, Url};
 use viaduct::{set_backend, Request};
@@ -67,6 +68,7 @@ fn main() {
         let mut client = Client::builder()
             .bucket_name(&collection.bucket)
             .collection_name(&collection.collection)
+            .storage(Box::new(FileStorage {}))
             .build();
 
         match client.get() {

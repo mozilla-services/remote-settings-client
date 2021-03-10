@@ -24,7 +24,7 @@ use log::debug;
 /// struct SignatureVerifier {}
 ///
 /// impl Verification for SignatureVerifier {
-///     fn verify(&mut self, collection: &Collection) -> Result<(), SignatureError> {
+///     fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
 ///         Ok(())
 ///     }
 /// }

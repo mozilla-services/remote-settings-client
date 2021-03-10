@@ -1,54 +1,41 @@
+pub mod dummy_storage;
+pub mod file_storage;
 
-pub mod default_cache;
-
-/// A trait for giving a type a custom cache storage implementation
+/// A trait for giving a type a custom storage implementation
 ///
-/// Cache Storage API used to store records from server and retrieve when needed
-/// # How can I implement ```RemoteStorage```?
+/// The `Storage` is used to store the collection content locally.
+/// # How can I implement ```Storage```?
 /// ```rust
-/// # use remote_settings_client::{SignatureError, Verification, RemoteStorage, RemoteStorageError};
+/// # use remote_settings_client::{SignatureError, Verification, Storage, StorageError};
 /// # use remote_settings_client::client::Collection;
 /// struct MyStore {}
 ///
-/// impl RemoteStorage for MyStore {
-///     fn store(&mut self, key: Vec<u8>, value: Vec<u8>) -> Result<(), RemoteStorageError> {
+/// impl Storage for MyStore {
+///     fn store(&mut self, key: &str, value: Vec<u8>) -> Result<(), StorageError> {
 ///         Ok(())
 ///     }
-/// 
-///     fn retrieve(&self, key: Vec<u8>) -> Result<Option<Vec<u8>>, RemoteStorageError> {
+///
+///     fn retrieve(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
 ///         Ok(Some(Vec::new()))
 ///     }
 /// }
 /// ```
-pub trait RemoteStorage {
-
-    /// Store key, value pair containing information about remote-settings records
-    /// fetched from server
+pub trait Storage {
+    /// Store a key, value pair.
     ///
     /// # Errors
-    /// If an error occurs while storing or retrieving, ```RemoteStorageError``` is returned
-    fn store(&mut self, key: Vec<u8>, value: Vec<u8>) -> Result<(), RemoteStorageError>;
+    /// If an error occurs while storing, ```StorageError::Error``` is returned
+    fn store(&mut self, key: &str, value: Vec<u8>) -> Result<(), StorageError>;
 
-    /// Retrieve value mapping to the key
-    /// 
-    /// If key cannot be found, return RemoteStorageError::ReadError
-    fn retrieve(&self, key: Vec<u8>) -> Result<Option<Vec<u8>>, RemoteStorageError>;
+    /// Retrieve a value for a given key.
+    ///
+    /// # Errors
+    /// If the key cannot be found, ```StorageError::ReadError``` is returned
+    fn retrieve(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError>;
 }
 
 #[derive(Debug, PartialEq)]
-pub enum RemoteStorageError {
+pub enum StorageError {
     Error { name: String },
-    ReadError { name: String }
-}
-
-impl From<std::io::Error> for RemoteStorageError {
-    fn from(err: std::io::Error) -> Self {
-        err.into()
-    }
-}
-
-impl From<serde_json::error::Error> for RemoteStorageError {
-    fn from(err: serde_json::error::Error) -> Self {
-        err.into()
-    }
+    ReadError { name: String },
 }
