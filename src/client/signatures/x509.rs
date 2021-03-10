@@ -45,6 +45,12 @@ pub fn fetch_public_key(x5u: &str) -> Result<Vec<u8>, SignatureError> {
 
     let resp = Request::get(Url::parse(&x5u)?).send()?;
 
+    if resp.status != 200 {
+        return Err(SignatureError::CertificateError {
+            name: format!("PEM could not be downloaded (HTTP {})", resp.status),
+        });
+    }
+
     // Extram PEM.
     // Use this command to debug:
     // ``openssl x509 -inform PEM -in cert.pem -text``
@@ -69,6 +75,54 @@ pub fn fetch_public_key(x5u: &str) -> Result<Vec<u8>, SignatureError> {
 
 #[cfg(test)]
 mod tests {
-    // Test URL parse error
-    // Test Viaduct error
+    use super::{fetch_public_key, SignatureError};
+    use httpmock::Method::GET;
+    use httpmock::{Mock, MockServer};
+
+    #[test]
+    fn test_bad_url() {
+        let err = fetch_public_key("%^").unwrap_err();
+        match err {
+            SignatureError::CertificateError { name } => {
+                assert_eq!(name, "relative URL without a base")
+            }
+            _ => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_download_error() {
+        let err = fetch_public_key("http://localhost:9999/bad").unwrap_err();
+        match err {
+            SignatureError::CertificateError { name } => {
+                assert!(name.contains("Network error: error sending request"))
+            }
+            _ => assert!(false),
+        };
+    }
+
+    #[test]
+    fn test_bad_status() {
+        let mock_server = MockServer::start();
+        let mock_server_address = mock_server.url("/file.pem");
+
+        let mut pem_mock = Mock::new()
+            .expect_method(GET)
+            .expect_path("/file.pem")
+            .return_status(404)
+            .create_on(&mock_server);
+
+        let err = fetch_public_key(&mock_server_address).unwrap_err();
+        match err {
+            SignatureError::CertificateError { name } => {
+                assert!(
+                    name.contains("PEM could not be downloaded (HTTP 404)"),
+                    name
+                )
+            }
+            _ => assert!(false),
+        };
+
+        pem_mock.delete();
+    }
 }
