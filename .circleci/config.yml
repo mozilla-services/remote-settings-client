@@ -18,6 +18,9 @@ jobs:
       - run:
           name: Build all targets
           command: cargo build --all --all-targets
+      - run:
+          name: Build documentation
+          command: cargo doc --all-features
       - save_cache:
           paths:
             - /usr/local/cargo/registry
@@ -26,7 +29,7 @@ jobs:
             - target/debug/deps
           key: v4-cargo-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
       - run:
-          name: Run remote-settings tests
+          name: Run tests
           command: cargo test --all
       - run:
           name: Run optional features' tests

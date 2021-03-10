@@ -42,7 +42,7 @@ impl From<SignatureError> for ClientError {
     }
 }
 
-/// Response body from remote-settings server
+/// Representation of a collection on the server
 #[derive(Debug, PartialEq)]
 pub struct Collection {
     pub bid: String,
@@ -113,37 +113,47 @@ impl ClientBuilder {
     }
 }
 
-/// Handles requests to Remote-Settings
+/// Client to fetch Remote Settings data.
+///
 /// # Examples
-/// Create Client with collection_name and without custom Verifier
+/// Create a `Client` for the `cid` collection on the production server:
 /// ```rust
-/// # use remote_settings_client::{SignatureError, Verification};
-/// # use remote_settings_client::{Client, Collection};
+/// # use remote_settings_client::Client;
+///
 /// # fn main() {
-///   let client = Client::builder().collection_name("collection_name").build();
+/// let client = Client::builder()
+///   .collection_name("cid")
+///   .build();
+/// # }
+/// ```
+/// Or for a specific server or bucket:
+/// ```rust
+/// # use remote_settings_client::Client;
+///
+/// # fn main() {
+/// let client = Client::builder()
+///   .server_url("https://settings.stage.mozaws.net/v1")
+///   .bucket_name("main-preview")
+///   .collection_name("cid")
+///   .build();
 /// # }
 /// ```
 ///
-/// Create Client with custom Verifier
-/// ```rust
-/// # use remote_settings_client::{SignatureError, Verification};
-/// # use remote_settings_client::{Client, Collection};
-/// struct CustomVerifier{}
+/// ## Signature verification
 ///
-/// impl Verification for CustomVerifier {
-///    fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
-///        Ok(()) // everything is verified!
-///    }
-/// }
+/// When no verifier is explicit specified, the default is chosen based on the enabled crate features:
 ///
-/// # fn main() {
-///   let client = Client::builder().collection_name("collection_name").verifier(Box::new(CustomVerifier{})).build();
-/// # }
-/// ```
+/// | Features        | Description                                |
+/// |-----------------|--------------------------------------------|
+/// | `[]`            | No signature verification of data          |
+/// | `ring_verifier` | Uses the `ring` crate to verify signatures |
+///
+/// See [`Verification`] for implementing a custom signature verifier.
 pub struct Client {
     server_url: String,
     bucket_name: String,
     collection_name: String,
+    // Box<dyn Trait> is necessary since implementation of [`Verification`] can be of any size unknown at compile time
     verifier: Box<dyn Verification>,
 }
 
@@ -160,26 +170,29 @@ impl Default for Client {
 
 impl Client {
     /// Creates a `ClientBuilder` to configure a `Client`.
-    ///
-    /// This is the same as `ClientBuilder::new()`.
     pub fn builder() -> ClientBuilder {
         ClientBuilder::new()
     }
 
-    /// Fetches records for a given collection from the remote-settings server
+    /// Fetches records from the server for a given collection
     ///
     /// # Examples
-    /// ```text
-    /// fn main() {
-    ///   match Client::builder().collection_name("collection").build().get() {
-    ///     Ok(records) => println!("{:?}", records),
-    ///     Err(error) => println!("Error fetching/verifying records: {:?}", error)
-    ///   };
-    /// }
+    /// ```rust
+    /// # use remote_settings_client::Client;
+    /// # use viaduct::set_backend;
+    /// # pub use viaduct_reqwest::ReqwestBackend;
+    /// # fn main() {
+    /// # set_backend(&ReqwestBackend).unwrap();
+    /// # let client = Client::builder().collection_name("url-classifier-skip-urls").build();
+    /// match client.get() {
+    ///   Ok(records) => println!("{:?}", records),
+    ///   Err(error) => println!("Error fetching/verifying records: {:?}", error)
+    /// };
+    /// # }
     /// ```
     ///
     /// # Errors
-    /// If an error occurs while fetching records, ```ClientError``` is returned
+    /// If an error occurs while fetching or verifying records, a [`ClientError`] is returned.
     pub fn get(&self) -> Result<Vec<KintoObject>, ClientError> {
         let expected = get_latest_change_timestamp(
             &self.server_url,
