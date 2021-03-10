@@ -146,12 +146,23 @@ impl ClientBuilder {
 ///
 /// When no verifier is explicit specified, the default is chosen based on the enabled crate features:
 ///
-/// | Features        | Description                                |
-/// |-----------------|--------------------------------------------|
-/// | `[]`            | No signature verification of data          |
-/// | `ring_verifier` | Uses the `ring` crate to verify signatures |
+/// | Features             | Description                            |
+/// |----------------------|----------------------------------------|
+/// | `[]`                 | No signature verification of data      |
+/// | `ring_verifier`      | Uses the `ring` crate                  |
+/// | `rc_crypto_verifier` | Uses `rc_crypto` on top of Mozilla NSS |
 ///
 /// See [`Verification`] for implementing a custom signature verifier.
+///
+/// In order to use the `rc_crypto_verifier` feature, the NSS library must be available.
+/// ```text
+/// export NSS_DIR=/path/to/nss
+/// export NSS_STATIC=1
+///
+/// cargo build --features=rc_crypto_verifier
+/// ```
+/// See [detailed NSS installation instructions](https://github.com/mozilla-services/remote-settings-client/blob/cc0df2e/.circleci/config.yml#L39-L63).
+///
 pub struct Client {
     server_url: String,
     bucket_name: String,
