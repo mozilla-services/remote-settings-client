@@ -3,13 +3,14 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use crate::client::Collection;
-use base64;
-use url::{ParseError};
-use viaduct::{Error as ViaductError};
-#[cfg(not(feature = "openssl_verifier"))]
+use canonical_json::CanonicalJSONError;
+use url::ParseError;
+use viaduct::Error as ViaductError;
+
 pub mod default_verifier;
-#[cfg(feature = "openssl_verifier")]
-pub mod openssl_verifier;
+#[cfg(feature = "ring_verifier")]
+pub mod ring_verifier;
+
 use log::debug;
 
 /// A trait for giving a type a custom signature verifier
@@ -38,11 +39,12 @@ pub trait Verification {
     ///
     /// If Signature does not match ```SignatureError::VerificationError``` is returned
     ///
-    fn verify(&mut self, collection: &Collection) -> Result<(), SignatureError>;
+    fn verify(&self, collection: &Collection) -> Result<(), SignatureError>;
 }
 
 #[derive(Debug, PartialEq)]
 pub enum SignatureError {
+    CertificateError { name: String },
     InvalidSignature { name: String },
     VerificationError { name: String },
 }
@@ -66,5 +68,11 @@ impl From<base64::DecodeError> for SignatureError {
         SignatureError::InvalidSignature {
             name: err.to_string(),
         }
+    }
+}
+
+impl From<CanonicalJSONError> for SignatureError {
+    fn from(err: CanonicalJSONError) -> Self {
+        err.into()
     }
 }
