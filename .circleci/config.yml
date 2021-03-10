@@ -36,7 +36,35 @@ jobs:
           command: cargo test --features=ring_verifier
       - run:
           name: Run tests with rc_crypto
-          command: cargo test --features=rc_crypto_verifier
+          command: |
+            # Install ninja-build locally
+            mkdir bin && pushd bin
+            wget https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-linux.zip
+            unzip ninja-linux.zip
+            # Pretend to have TCL to make `build-all.sh` happy.
+            touch tclsh && chmod +x tclsh
+            export PATH="$(pwd):$PATH"
+            popd
+
+            # Install pip locally.
+            curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py
+            python get-pip.py
+            pip install gyp-next
+
+            # Download and compile NSS.
+            mkdir libs && pushd libs
+            wget https://github.com/mozilla/application-services/raw/v73.0.1/libs/build-all.sh
+            wget https://github.com/mozilla/application-services/raw/v73.0.1/libs/build-nss-desktop.sh
+            touch build-sqlcipher-desktop.sh  # no-op.
+            chmod +x *.sh
+            ./build-all.sh desktop
+            popd
+
+            export APPSERVICES_PLATFORM_DIR="$(pwd)/libs/desktop/linux-x86-64"
+            export NSS_DIR=${APPSERVICES_PLATFORM_DIR}/nss
+            export NSS_STATIC=1
+
+            cargo test --features=rc_crypto_verifier
 
 workflows:
   version: 2
