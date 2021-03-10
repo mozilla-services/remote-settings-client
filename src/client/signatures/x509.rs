@@ -78,6 +78,8 @@ mod tests {
     use super::{fetch_public_key, SignatureError};
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
+    use viaduct::set_backend;
+    use viaduct_reqwest::ReqwestBackend;
 
     #[test]
     fn test_bad_url() {
@@ -92,6 +94,8 @@ mod tests {
 
     #[test]
     fn test_download_error() {
+        let _ = set_backend(&ReqwestBackend);
+
         let err = fetch_public_key("http://localhost:9999/bad").unwrap_err();
         match err {
             SignatureError::CertificateError { name } => {

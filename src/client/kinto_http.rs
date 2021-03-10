@@ -116,9 +116,13 @@ mod tests {
     use super::{get_latest_change_timestamp, KintoError};
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
+    use viaduct::set_backend;
+    use viaduct_reqwest::ReqwestBackend;
 
     #[test]
     fn test_fetch() {
+        let _ = set_backend(&ReqwestBackend);
+
         let mock_server = MockServer::start();
         let mock_server_address = mock_server.url("");
         let mock_body = r#"{
