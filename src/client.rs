@@ -239,7 +239,7 @@ impl Client {
     /// # Errors
     /// If an error occurs while fetching or verifying records, a [`ClientError`] is returned.
     pub fn get(&mut self) -> Result<Vec<KintoObject>, ClientError> {
-        let storage_key = format!("{}--{}--collection", self.bucket_name, self.collection_name);
+        let storage_key = format!("{}/{}:collection", self.bucket_name, self.collection_name);
         debug!("Retrieve from storage with key={:?}", storage_key);
         let stored_bytes: Vec<u8> = self
             .storage

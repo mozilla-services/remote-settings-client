@@ -1,12 +1,14 @@
 use {
     super::{Storage, StorageError},
-    log::{debug, info},
+    log::{debug, error},
     std::fs::OpenOptions,
     std::io::prelude::*,
-    std::path::Path,
+    std::path::{Path, PathBuf, MAIN_SEPARATOR},
 };
 
-pub struct FileStorage {}
+pub struct FileStorage {
+    folder: String,
+}
 
 impl From<std::io::Error> for StorageError {
     fn from(err: std::io::Error) -> Self {
@@ -14,35 +16,43 @@ impl From<std::io::Error> for StorageError {
     }
 }
 
+impl FileStorage {
+    fn _pathfor(&self, key: &str) -> PathBuf {
+        let slug = key.replace(MAIN_SEPARATOR, "-").replace(".", "-");
+        Path::new(&self.folder).join(format!("{}.bin", slug))
+    }
+}
+
 impl Storage for FileStorage {
     fn store(&mut self, key: &str, value: Vec<u8>) -> Result<(), StorageError> {
-        let file_name = &format!("{}.bin", key);
-        let path = Path::new(file_name);
-        debug!("Read from {:?}", path);
-
-        match OpenOptions::new().write(true).create(true).open(path) {
+        let path = self._pathfor(&key);
+        match OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .create(true)
+            .open(&path)
+        {
             Err(err) => {
-                info!("Couldn't open or create {}: {}", path.display(), err);
+                error!("Couldn't open or create {:?}: {}", path, err);
                 return Err(StorageError::Error {
                     name: err.to_string(),
                 });
             }
             Ok(mut file) => {
                 file.write_all(&value)?;
+                file.sync_all()?;
+                debug!("Wrote {} ({} bytes) into {:?}", key, value.len(), path);
                 return Ok(());
             }
         };
     }
 
     fn retrieve(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
-        let file_name = &format!("{}.bin", key);
-        let path = Path::new(file_name);
-        debug!("Read from {:?}", path);
-
-        let mut file = match OpenOptions::new().read(true).write(false).open(path) {
+        let path = self._pathfor(&key);
+        let mut file = match OpenOptions::new().read(true).write(false).open(&path) {
             Ok(file) => file,
             Err(err) => {
-                info!("Couldn't open {:?}: {}", path, err);
+                error!("Couldn't open {:?}: {}", path, err);
                 return Ok(None);
             }
         };
@@ -50,10 +60,10 @@ impl Storage for FileStorage {
         let mut s = String::new();
         match file.read_to_string(&mut s) {
             Err(err) => {
-                info!("Couldn't read {:?}: {}", path, err);
+                error!("Couldn't read {:?}: {}", path, err);
                 return Ok(None);
             }
-            Ok(_) => info!("{:?} contains {} bytes", path, s.len()),
+            Ok(size) => debug!("Read {} ({} bytes) from {:?}", key, size, path),
         };
 
         Ok(Some(s.into_bytes()))
@@ -72,14 +82,19 @@ mod tests {
     }
 
     fn cleanup(file_path: &str) {
-        remove_file(&file_path).or_else(|err| error!("Error removing file : {}", err));
+        if remove_file(&file_path).is_err() {
+            error!("Error removing file : {}", file_path);
+        };
     }
 
     #[test]
     fn test_store_key_value_with_no_file_present() {
         init();
 
-        let mut storage = FileStorage {};
+        let mut storage = FileStorage {
+            folder: ".".to_string(),
+        };
+        cleanup("./test.bin");
 
         storage
             .store("test", "some value".as_bytes().to_vec())
@@ -90,14 +105,16 @@ mod tests {
         let value_str = String::from_utf8(value_bytes.to_vec()).unwrap();
 
         assert_eq!(value_str, "some value");
-        cleanup("test.bin");
+        cleanup("./test.bin");
     }
 
     #[test]
     fn test_store_overwrite_file() {
         init();
 
-        let mut storage = FileStorage {};
+        let mut storage = FileStorage {
+            folder: ".".to_string(),
+        };
 
         storage
             .store("test", "some value".as_bytes().to_vec())
@@ -112,15 +129,35 @@ mod tests {
         let value_str = String::from_utf8(value_bytes.to_vec()).unwrap();
 
         assert_eq!(value_str, "new value");
-        cleanup("test.bin");
+        cleanup("./test.bin");
     }
 
     #[test]
     fn test_retrieve_cannot_find_file() {
         init();
 
-        let storage = FileStorage {};
+        let storage = FileStorage {
+            folder: ".".to_string(),
+        };
+        cleanup("./test.bin");
 
         assert!(storage.retrieve("test").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_store_dangerous_key() {
+        init();
+
+        cleanup("./etc-password.bin");
+
+        let mut storage = FileStorage {
+            folder: ".".to_string(),
+        };
+
+        storage
+            .store("/etc/password", "some value".as_bytes().to_vec())
+            .unwrap();
+
+        remove_file("./-etc-password.bin").unwrap(); // Fails if file is missing.
     }
 }
