@@ -116,9 +116,18 @@ mod tests {
     use super::{get_latest_change_timestamp, KintoError};
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
+    use viaduct::set_backend;
+    use viaduct_reqwest::ReqwestBackend;
+
+    fn init() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        let _ = set_backend(&ReqwestBackend);
+    }
 
     #[test]
     fn test_fetch() {
+        init();
+
         let mock_server = MockServer::start();
         let mock_server_address = mock_server.url("");
         let mock_body = r#"{
@@ -154,6 +163,8 @@ mod tests {
 
     #[test]
     fn test_bad_url() {
+        init();
+
         let err =
             get_latest_change_timestamp("%^", "main", "url-classifier-skip-urls").unwrap_err();
         match err {
@@ -166,6 +177,8 @@ mod tests {
 
     #[test]
     fn test_bad_json() {
+        init();
+
         let mock_server = MockServer::start();
         let mock_server_address = mock_server.url("");
         let mock_body = r#"{
@@ -196,6 +209,8 @@ mod tests {
 
     #[test]
     fn test_bad_timestamp() {
+        init();
+
         let mock_server = MockServer::start();
         let mock_server_address = mock_server.url("");
         let mock_body = r#"{
