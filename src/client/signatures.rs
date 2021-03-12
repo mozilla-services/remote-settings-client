@@ -5,7 +5,7 @@
 use crate::client::Collection;
 use canonical_json::CanonicalJSONError;
 
-pub mod default_verifier;
+pub mod dummy_verifier;
 
 #[cfg(feature = "ring_verifier")]
 pub mod ring_verifier;
@@ -76,7 +76,6 @@ impl From<CanonicalJSONError> for SignatureError {
     }
 }
 
-#[cfg(any(feature = "ring_verifier", feature = "rc_crypto_verifier"))]
 #[cfg(test)]
 mod tests {
     use super::{Collection, Verification};
@@ -84,13 +83,6 @@ mod tests {
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
     use serde_json::json;
-
-    #[cfg(feature = "ring_verifier")]
-    const VERIFIER: super::ring_verifier::RingVerifier = super::ring_verifier::RingVerifier {};
-
-    #[cfg(feature = "rc_crypto_verifier")]
-    const VERIFIER: super::rc_crypto_verifier::RcCryptoVerifier =
-        super::rc_crypto_verifier::RcCryptoVerifier {};
 
     fn verify_signature(
         mock_server: &MockServer,
@@ -108,19 +100,29 @@ mod tests {
             .return_body(certificate)
             .create_on(&mock_server);
 
-        if should_fail {
-            assert!(VERIFIER.verify(&collection).is_err())
-        } else {
-            match VERIFIER.verify(&collection) {
-                Err(err) => {
-                    println!("{:?}", err);
-                    assert!(false)
+        let mut verifiers: Vec<&dyn Verification> = Vec::new();
+
+        #[cfg(feature = "ring_verifier")]
+        verifiers.push(&super::ring_verifier::RingVerifier {});
+
+        #[cfg(feature = "rc_crypto_verifier")]
+        verifiers.push(&super::rc_crypto_verifier::RcCryptoVerifier {});
+
+        for verifier in &verifiers {
+            if should_fail {
+                assert!(verifier.verify(&collection).is_err())
+            } else {
+                match verifier.verify(&collection) {
+                    Err(err) => {
+                        println!("{:?}", err);
+                        assert!(false)
+                    }
+                    Ok(_) => println!("success"),
                 }
-                Ok(_) => println!("success"),
             }
         }
 
-        assert_eq!(1, get_pem_certificate.times_called());
+        assert_eq!(verifiers.len(), get_pem_certificate.times_called());
         get_pem_certificate.delete();
     }
 

@@ -9,13 +9,12 @@ use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoOb
 pub use signatures::{SignatureError, Verification};
 
 #[cfg(feature = "ring_verifier")]
-use crate::client::signatures::ring_verifier::RingVerifier as DefaultVerifier;
+pub use crate::client::signatures::ring_verifier::RingVerifier;
 
 #[cfg(feature = "rc_crypto_verifier")]
-use crate::client::signatures::rc_crypto_verifier::RcCryptoVerifier as DefaultVerifier;
+pub use crate::client::signatures::rc_crypto_verifier::RcCryptoVerifier;
 
-#[cfg(not(any(feature = "ring_verifier", feature = "rc_crypto_verifier")))]
-use crate::client::signatures::default_verifier::DefaultVerifier;
+use crate::client::signatures::dummy_verifier::DummyVerifier;
 
 pub const DEFAULT_SERVER_URL: &str = "https://firefox.settings.services.mozilla.com/v1";
 pub const DEFAULT_BUCKET_NAME: &str = "main";
@@ -77,7 +76,7 @@ impl ClientBuilder {
             server_url: DEFAULT_SERVER_URL.to_owned(),
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
-            verifier: Box::new(DefaultVerifier {}),
+            verifier: Box::new(DummyVerifier {}),
         }
     }
 
@@ -122,7 +121,6 @@ impl ClientBuilder {
 /// Create a `Client` for the `cid` collection on the production server:
 /// ```rust
 /// # use remote_settings_client::Client;
-///
 /// # fn main() {
 /// let client = Client::builder()
 ///   .collection_name("cid")
@@ -132,7 +130,6 @@ impl ClientBuilder {
 /// Or for a specific server or bucket:
 /// ```rust
 /// # use remote_settings_client::Client;
-///
 /// # fn main() {
 /// let client = Client::builder()
 ///   .server_url("https://settings.stage.mozaws.net/v1")
@@ -144,17 +141,38 @@ impl ClientBuilder {
 ///
 /// ## Signature verification
 ///
-/// When no verifier is explicit specified, the default is chosen based on the enabled crate features:
+/// When no verifier is explicit specified, a dummy verifier is used.
 ///
-/// | Features             | Description                            |
-/// |----------------------|----------------------------------------|
-/// | `[]`                 | No signature verification of data      |
-/// | `ring_verifier`      | Uses the `ring` crate                  |
-/// | `rc_crypto_verifier` | Uses `rc_crypto` on top of Mozilla NSS |
+/// ### `ring`
 ///
-/// See [`Verification`] for implementing a custom signature verifier.
+/// With the `ring_verifier` feature, a signature verifier leveraging the [`ring` crate](https://crates.io/crates/ring).
+/// ```rust
+/// # use remote_settings_client::Client;
+/// use remote_settings_client::RingVerifier;
 ///
-/// In order to use the `rc_crypto_verifier` feature, the NSS library must be available.
+/// # fn main() {
+/// let client = Client::builder()
+///   .collection_name("cid")
+///   .verifier(Box::new(RingVerifier {}))
+///   .build();
+/// # }
+/// ```
+///
+/// ### `rc_crypto`
+///
+/// With the `rc_crypto` feature, a signature verifier leveraging the [`rc_crypto` crate](https://github.com/mozilla/application-services/tree/v73.0.1/components/support/rc_crypto).
+/// ```rust
+/// # use remote_settings_client::Client;
+/// use remote_settings_client::RcCryptoVerifier;
+///
+/// # fn main() {
+/// let client = Client::builder()
+///   .collection_name("cid")
+///   .verifier(Box::new(RcCryptoVerifier {}))
+///   .build();
+/// # }
+/// ```
+/// In order to use it, the NSS library must be available.
 /// ```text
 /// export NSS_DIR=/path/to/nss
 /// export NSS_STATIC=1
@@ -162,6 +180,9 @@ impl ClientBuilder {
 /// cargo build --features=rc_crypto_verifier
 /// ```
 /// See [detailed NSS installation instructions](https://github.com/mozilla-services/remote-settings-client/blob/f636bc2/.circleci/config.yml#L39-L63).
+///
+/// ### Custom
+/// See [`Verification`] for implementing a custom signature verifier.
 ///
 pub struct Client {
     server_url: String,
@@ -177,7 +198,7 @@ impl Default for Client {
             server_url: DEFAULT_SERVER_URL.to_owned(),
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
-            verifier: Box::new(DefaultVerifier {}),
+            verifier: Box::new(DummyVerifier {}),
         }
     }
 }
