@@ -179,7 +179,7 @@ impl ClientBuilder {
 ///
 /// cargo build --features=rc_crypto_verifier
 /// ```
-/// See [detailed NSS installation instructions](https://github.com/mozilla-services/remote-settings-client/blob/f636bc2/.circleci/config.yml#L39-L63).
+/// See [detailed NSS installation instructions](https://github.com/mozilla-services/remote-settings-client/blob/747e881/.circleci/config.yml#L25-L46).
 ///
 /// ### Custom
 /// See [`Verification`] for implementing a custom signature verifier.
