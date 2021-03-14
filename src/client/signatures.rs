@@ -13,14 +13,15 @@ pub mod ring_verifier;
 
 use log::debug;
 
-/// A trait for giving a type a custom signature verifier
+/// A trait for signature verification of collection data.
 ///
-/// Sometimes, you want to use your own verification implementation to verify signature retrieved from the remote-settings server
+/// You may want to use your own verification implementation (eg. using OpenSSL instead of `ring` or `rc_crypto`).
 ///
 /// # How can I implement ```Verification```?
 /// ```rust
 /// # use remote_settings_client::{SignatureError, Verification};
-/// # use remote_settings_client::client::Collection;
+/// # use remote_settings_client::{Client, Collection};
+///
 /// struct SignatureVerifier {}
 ///
 /// impl Verification for SignatureVerifier {
@@ -28,16 +29,25 @@ use log::debug;
 ///         Ok(())
 ///     }
 /// }
+///
+/// # fn main() {
+/// let client = Client::builder()
+///    .collection_name("cid")
+///    .verifier(Box::new(SignatureVerifier {}))
+///    .build();
+/// # }
 /// ```
 pub trait Verification {
-    /// Verifies signature for given ```Collection``` struct
+    /// Verifies signature for a given ```Collection``` struct
     ///
     /// # Errors
     /// If an error occurs while verifying, ```SignatureError``` is returned
     ///
-    /// If Signature Format is invalid ```SignatureError::InvalidSignature``` is returned
+    /// If the error is related to the certificate, ```SignatureError::CertificateError``` is returned
     ///
-    /// If Signature does not match ```SignatureError::VerificationError``` is returned
+    /// If the signature format or content is invalid, ```SignatureError::InvalidSignature``` is returned
+    ///
+    /// If the signature does not match the content, ```SignatureError::VerificationError``` is returned
     ///
     fn verify(&self, collection: &Collection) -> Result<(), SignatureError>;
 }
