@@ -37,7 +37,7 @@ impl Storage for FileStorage {
                 Err(StorageError::Error {
                     name: err.to_string(),
                 })
-            },
+            }
             Ok(mut file) => {
                 file.write_all(&value)?;
                 file.sync_all()?;

@@ -19,8 +19,6 @@ use crate::client::signatures::ring_verifier::RingVerifier as DefaultVerifier;
 #[cfg(not(feature = "ring_verifier"))]
 use crate::client::signatures::default_verifier::DefaultVerifier;
 
-use crate::client::storage::dummy_storage::DummyStorage as DefaultStorage;
-
 pub const DEFAULT_SERVER_URL: &str = "https://firefox.settings.services.mozilla.com/v1";
 pub const DEFAULT_BUCKET_NAME: &str = "main";
 
@@ -101,7 +99,7 @@ impl ClientBuilder {
             bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
             collection_name: "".to_owned(),
             verifier: Box::new(DefaultVerifier {}),
-            storage: Box::new(DefaultStorage {}),
+            storage: Box::new(DummyStorage {}),
         }
     }
 
@@ -192,6 +190,18 @@ pub struct Client {
     storage: Box<dyn Storage>,
 }
 
+impl Default for Client {
+    fn default() -> Self {
+        Client {
+            server_url: DEFAULT_SERVER_URL.to_owned(),
+            bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
+            collection_name: "".to_owned(),
+            verifier: Box::new(DefaultVerifier {}),
+            storage: Box::new(DummyStorage {}),
+        }
+    }
+}
+
 impl Client {
     /// Creates a `ClientBuilder` to configure a `Client`.
     pub fn builder() -> ClientBuilder {
@@ -221,6 +231,7 @@ impl Client {
 
         Ok(collection)
     }
+
     /// Fetches records from the server for a given collection
     ///
     /// # Examples
