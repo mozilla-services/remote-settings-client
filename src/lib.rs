@@ -9,19 +9,17 @@
 //!   pub use viaduct::set_backend;
 //!   pub use viaduct_reqwest::ReqwestBackend;
 //!
-//!   fn main() {
-//!     set_backend(&ReqwestBackend).unwrap();
+//!   set_backend(&ReqwestBackend).unwrap();
 //!
-//!     let mut client = Client::builder()
-//!       .bucket_name("main-preview")
-//!       .collection_name("search-config")
-//!       .build();
+//!   let mut client = Client::builder()
+//!     .bucket_name("main-preview")
+//!     .collection_name("search-config")
+//!     .build();
 //!
-//!     match client.get() {
-//!       Ok(records) => println!("{:?}", records),
-//!       Err(error) => println!("Error fetching/verifying records: {:?}", error),
-//!     };
-//!   }
+//!   match client.get() {
+//!     Ok(records) => println!("{:?}", records),
+//!     Err(error) => println!("Error fetching/verifying records: {:?}", error),
+//!   };
 //! ```
 //!
 //! See [`Client`] for more infos.

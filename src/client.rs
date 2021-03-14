@@ -252,7 +252,7 @@ impl Client {
             .storage
             .retrieve(&storage_key)
             .unwrap_or(None)
-            .unwrap_or(Vec::new());
+            .unwrap_or_else(Vec::new);
 
         let stored: Option<Collection> = serde_json::from_slice(&stored_bytes).unwrap_or(None);
 
@@ -265,22 +265,19 @@ impl Client {
             &self.collection_name,
         )?;
 
-        match stored {
-            Some(collection) => {
-                let up_to_date = collection.timestamp == remote_timestamp;
-                if up_to_date && !self.verifier.verify(&collection).is_err() {
-                    debug!("Local data is up-to-date and valid.");
-                    return Ok(collection.records);
-                }
+        if let Some(collection) = stored {
+            let up_to_date = collection.timestamp == remote_timestamp;
+            if up_to_date && self.verifier.verify(&collection).is_ok() {
+                debug!("Local data is up-to-date and valid.");
+                return Ok(collection.records);
             }
-            None => {}
-        };
+        }
 
         info!("Local data is empty, outdated, or has been tampered. Fetch from server.");
         let collection = self._fetch_records_and_verify(remote_timestamp)?;
         let collection_bytes: Vec<u8> = serde_json::to_string(&collection)?.into();
         self.storage.store(&storage_key, collection_bytes)?;
-        return Ok(collection.records);
+        Ok(collection.records)
     }
 }
 

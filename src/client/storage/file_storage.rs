@@ -34,17 +34,17 @@ impl Storage for FileStorage {
         {
             Err(err) => {
                 error!("Couldn't open or create {:?}: {}", path, err);
-                return Err(StorageError::Error {
+                Err(StorageError::Error {
                     name: err.to_string(),
-                });
-            }
+                })
+            },
             Ok(mut file) => {
                 file.write_all(&value)?;
                 file.sync_all()?;
                 debug!("Wrote {} ({} bytes) into {:?}", key, value.len(), path);
-                return Ok(());
+                Ok(())
             }
-        };
+        }
     }
 
     fn retrieve(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
