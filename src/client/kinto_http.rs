@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use log::{debug, info};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use url::{ParseError, Url};
 use viaduct::{Error as ViaductError, Request};
 
@@ -14,7 +14,7 @@ struct KintoPluralResponse<T> {
     data: Vec<T>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChangesetResponse {
     pub metadata: KintoObject,
     pub changes: Vec<KintoObject>,
@@ -119,9 +119,14 @@ mod tests {
     use viaduct::set_backend;
     use viaduct_reqwest::ReqwestBackend;
 
+    fn init() {
+        let _ = env_logger::builder().is_test(true).try_init();
+        let _ = set_backend(&ReqwestBackend);
+    }
+
     #[test]
     fn test_fetch() {
-        let _ = set_backend(&ReqwestBackend);
+        init();
 
         let mock_server = MockServer::start();
         let mock_server_address = mock_server.url("");
@@ -158,6 +163,8 @@ mod tests {
 
     #[test]
     fn test_bad_url() {
+        init();
+
         let err =
             get_latest_change_timestamp("%^", "main", "url-classifier-skip-urls").unwrap_err();
         match err {
@@ -170,6 +177,8 @@ mod tests {
 
     #[test]
     fn test_bad_json() {
+        init();
+
         let mock_server = MockServer::start();
         let mock_server_address = mock_server.url("");
         let mock_body = r#"{
@@ -200,6 +209,8 @@ mod tests {
 
     #[test]
     fn test_bad_timestamp() {
+        init();
+
         let mock_server = MockServer::start();
         let mock_server_address = mock_server.url("");
         let mock_body = r#"{
