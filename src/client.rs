@@ -8,10 +8,14 @@ mod storage;
 
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject};
 pub use signatures::{SignatureError, Verification};
-pub use storage::{dummy_storage::DummyStorage, file_storage::FileStorage, Storage, StorageError};
+pub use storage::{
+    dummy_storage::DummyStorage, file_storage::FileStorage, memory_storage::MemoryStorage, Storage,
+    StorageError,
+};
 
 #[cfg(feature = "ring_verifier")]
 use crate::client::signatures::ring_verifier::RingVerifier as DefaultVerifier;
