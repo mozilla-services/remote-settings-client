@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 use env_logger;
 use remote_settings_client::{Client, Collection, SignatureError, Verification};
+use remote_settings_client::client::FileStorage;
 use serde::Deserialize;
 pub use url::{ParseError, Url};
 use viaduct::{set_backend, Request};
@@ -33,7 +34,7 @@ fn main() {
 
     print!("Fetching records using RS client with default Verifier: ");
 
-    let client = Client::builder()
+    let mut client = Client::builder()
         .collection_name("url-classifier-skip-urls")
         .build();
 
@@ -44,7 +45,7 @@ fn main() {
 
     print!("Fetching records using RS client with custom Verifier: ");
 
-    let client_with_custom_verifier = Client::builder()
+    let mut client_with_custom_verifier = Client::builder()
         .collection_name("url-classifier-skip-urls")
         .verifier(Box::new(CustomVerifier {}))
         .build();
@@ -64,9 +65,10 @@ fn main() {
         let cid = format!("{}/{}", collection.bucket, collection.collection);
         print!("Fetching records of {}: ", cid);
 
-        let client = Client::builder()
+        let mut client = Client::builder()
             .bucket_name(&collection.bucket)
             .collection_name(&collection.collection)
+            .storage(Box::new(FileStorage { folder: "/tmp" }))
             .build();
 
         match client.get() {
