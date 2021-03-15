@@ -1,14 +1,14 @@
-use std::collections::HashMap;
 use super::{Storage, StorageError};
+use std::collections::HashMap;
 
 pub struct MemoryStorage {
-    mem: HashMap<String, Vec<u8>>
+    mem: HashMap<String, Vec<u8>>,
 }
 
 impl MemoryStorage {
     pub fn new() -> Self {
         MemoryStorage {
-            mem: HashMap::new()
+            mem: HashMap::new(),
         }
     }
 }
@@ -28,7 +28,7 @@ impl Storage for MemoryStorage {
     fn retrieve(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
         match self.mem.get(key) {
             Some(v) => Ok(Some(v.to_owned())),
-            None => Ok(None)
+            None => Ok(None),
         }
     }
 }

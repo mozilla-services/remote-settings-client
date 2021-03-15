@@ -1,6 +1,6 @@
 //! # Remote Settings Client
 //!
-//! A library for fetching Remote Settings data.
+//! A library for fetching and synchronizing Remote Settings data.
 //!
 //! ## Example
 //!
@@ -15,6 +15,8 @@
 //!     .bucket_name("main-preview")
 //!     .collection_name("search-config")
 //!     .build();
+//!
+//!   client.sync(None).unwrap();
 //!
 //!   match client.get() {
 //!     Ok(records) => println!("{:?}", records),
