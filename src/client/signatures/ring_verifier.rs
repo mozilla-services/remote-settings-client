@@ -106,6 +106,8 @@ mod tests {
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
     use serde_json::json;
+    use viaduct::set_backend;
+    use viaduct_reqwest::ReqwestBackend;
 
     fn verify_signature(
         mock_server: &MockServer,
@@ -143,6 +145,7 @@ mod tests {
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
+        let _ = set_backend(&ReqwestBackend);
     }
 
     #[test]
