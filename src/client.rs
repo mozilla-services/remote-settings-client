@@ -86,6 +86,7 @@ pub struct ClientBuilder {
     collection_name: String,
     verifier: Box<dyn Verification>,
     storage: Box<dyn Storage>,
+    sync_if_empty: bool,
 }
 
 impl Default for ClientBuilder {
@@ -105,6 +106,7 @@ impl ClientBuilder {
             collection_name: "".to_owned(),
             verifier: Box::new(DefaultVerifier {}),
             storage: Box::new(DummyStorage {}),
+            sync_if_empty: true,
         }
     }
 
@@ -138,6 +140,12 @@ impl ClientBuilder {
         self
     }
 
+    /// Should it synchronize when local DB is empty
+    pub fn sync_if_empty(mut self, sync_if_empty: bool) -> ClientBuilder {
+        self.sync_if_empty = sync_if_empty;
+        self
+    }
+
     /// Build Client from ClientBuilder
     pub fn build(self) -> Client {
         Client {
@@ -146,6 +154,7 @@ impl ClientBuilder {
             collection_name: self.collection_name,
             verifier: self.verifier,
             storage: self.storage,
+            sync_if_empty: self.sync_if_empty,
         }
     }
 }
@@ -193,17 +202,12 @@ pub struct Client {
     // Box<dyn Trait> is necessary since implementation of [`Verification`] can be of any size unknown at compile time
     verifier: Box<dyn Verification>,
     storage: Box<dyn Storage>,
+    sync_if_empty: bool,
 }
 
 impl Default for Client {
     fn default() -> Self {
-        Client {
-            server_url: DEFAULT_SERVER_URL.to_owned(),
-            bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
-            collection_name: "".to_owned(),
-            verifier: Box::new(DefaultVerifier {}),
-            storage: Box::new(DummyStorage {}),
-        }
+        Client::builder().build()
     }
 }
 
@@ -257,10 +261,17 @@ impl Client {
         match stored {
             // TODO: add `verifySignature` option to make sure local data was not tampered.
             Some(collection) => Ok(collection.records),
-            // TODO: this empty list should be «qualified». Is it empty because never synced
-            // or empty on the server too. (see Normandy suitabilities).
-            // TODO: add `syncIfEmpty` option so that synchronization happens if local DB is empty.
-            None => Ok(Vec::new()),
+            None => {
+                if self.sync_if_empty {
+                    debug!("Synchronize data, without knowning which timestamp to expect.");
+                    let collection = self.sync(None)?;
+                    return Ok(collection.records);
+                }
+                // TODO: this empty list should be «qualified». Is it empty because never synced
+                // or empty on the server too. (see Normandy suitabilities).
+                debug!("Local data is empty or malformed.");
+                Ok(Vec::new())
+            }
         }
     }
 
@@ -379,7 +390,7 @@ fn merge_changes(
 #[cfg(test)]
 mod tests {
     use super::signatures::{SignatureError, Verification};
-    use super::{Client, ClientError, Collection, MemoryStorage};
+    use super::{Client, ClientError, Collection, DummyStorage, MemoryStorage};
     use env_logger;
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
@@ -418,9 +429,12 @@ mod tests {
     #[test]
     fn test_get_empty_storage() {
         init();
+        let mock_server = MockServer::start();
 
         let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
             .collection_name("url-classifier-skip-urls")
+            .sync_if_empty(false)
             .build();
 
         assert_eq!(client.get().unwrap().len(), 0);
@@ -429,8 +443,13 @@ mod tests {
     #[test]
     fn test_get_bad_stored_data() {
         init();
+        let mock_server = MockServer::start();
 
-        let mut client = Client::builder().collection_name("cfr").build();
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("cfr")
+            .sync_if_empty(false)
+            .build();
 
         client.storage.store("main/cfr", b"abc".to_vec()).unwrap();
 
@@ -457,6 +476,7 @@ mod tests {
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
             .collection_name("regions")
+            .storage(Box::new(MemoryStorage::new()))
             .verifier(Box::new(VerifierWithNoError {}))
             .build();
 
@@ -505,6 +525,61 @@ mod tests {
 
         assert_eq!(1, get_changeset_mock.times_called());
         get_changeset_mock.delete();
+    }
+
+    #[test]
+    fn test_get_works_with_dummy_storage() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mut get_latest_change_mock = mock_json()
+            .expect_path("/buckets/monitor/collections/changes/changeset")
+            .expect_query_param("_expected", "0")
+            .return_body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "not-read",
+                        "last_modified": 555,
+                        "bucket": "main",
+                        "collection": "top-sites"
+                    }],
+                    "timestamp": 555
+                }"#,
+            )
+            .create_on(&mock_server);
+
+        let mut get_changeset_mock = mock_json()
+            .expect_path("/buckets/main/collections/top-sites/changeset")
+            .expect_query_param("_expected", "555")
+            .return_body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 555,
+                        "foo": "bar"
+                    }],
+                    "timestamp": 555
+                }"#,
+            )
+            .create_on(&mock_server);
+
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("top-sites")
+            .storage(Box::new(DummyStorage {}))
+            .verifier(Box::new(VerifierWithNoError {}))
+            .build();
+
+        let records = client.get().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
+
+        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.delete();
+        assert_eq!(1, get_latest_change_mock.times_called());
+        get_latest_change_mock.delete();
     }
 
     #[test]
