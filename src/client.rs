@@ -82,22 +82,18 @@ impl Record {
     // Return the record id.
     pub fn id(&self) -> &str {
         // `id` field is always present as a string.
-        self.as_object().get("id").unwrap().as_str().unwrap()
+        self.0["id"].as_str().unwrap()
     }
 
     // Return the record timestamp.
     pub fn last_modified(&self) -> u64 {
         // `last_modified` field is always present as a uint.
-        self.as_object()
-            .get("last_modified")
-            .unwrap()
-            .as_u64()
-            .unwrap()
+        self.0["last_modified"].as_u64().unwrap()
     }
 
     // Return true if the record is a tombstone.
     pub fn deleted(&self) -> bool {
-        match self.as_object().get("deleted") {
+        match self.get("deleted") {
             Some(v) => v.as_bool().unwrap_or(false),
             None => false,
         }
@@ -105,7 +101,7 @@ impl Record {
 
     // Return a field value.
     pub fn get(&self, key: &str) -> Option<&serde_json::Value> {
-        self.as_object().get(key)
+        self.0.get(key)
     }
 }
 
