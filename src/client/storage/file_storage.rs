@@ -94,18 +94,18 @@ mod tests {
         let mut storage = FileStorage {
             folder: ".".to_string(),
         };
-        cleanup("./test.bin");
+        cleanup("./store-key.bin");
 
         storage
-            .store("test", "some value".as_bytes().to_vec())
+            .store("store-key", "some value".as_bytes().to_vec())
             .unwrap();
 
-        let retrieve_result = storage.retrieve("test").unwrap();
+        let retrieve_result = storage.retrieve("store-key").unwrap();
         let value_bytes = retrieve_result.unwrap();
         let value_str = String::from_utf8(value_bytes.to_vec()).unwrap();
 
         assert_eq!(value_str, "some value");
-        cleanup("./test.bin");
+        cleanup("./store-key.bin");
     }
 
     #[test]
@@ -117,19 +117,19 @@ mod tests {
         };
 
         storage
-            .store("test", "some value".as_bytes().to_vec())
+            .store("overwrite-key", "some value".as_bytes().to_vec())
             .unwrap();
 
         storage
-            .store("test", "new value".as_bytes().to_vec())
+            .store("overwrite-key", "new value".as_bytes().to_vec())
             .unwrap();
 
-        let retrieve_result = storage.retrieve("test").unwrap();
+        let retrieve_result = storage.retrieve("overwrite-key").unwrap();
         let value_bytes = retrieve_result.unwrap();
         let value_str = String::from_utf8(value_bytes.to_vec()).unwrap();
 
         assert_eq!(value_str, "new value");
-        cleanup("./test.bin");
+        cleanup("./overwrite-key.bin");
     }
 
     #[test]
@@ -139,9 +139,9 @@ mod tests {
         let storage = FileStorage {
             folder: ".".to_string(),
         };
-        cleanup("./test.bin");
+        cleanup("./unknown-key.bin");
 
-        assert!(storage.retrieve("test").unwrap().is_none());
+        assert!(storage.retrieve("unknown-key").unwrap().is_none());
     }
 
     #[test]

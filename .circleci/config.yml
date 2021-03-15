@@ -30,10 +30,10 @@ jobs:
           key: v4-cargo-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
       - run:
           name: Run tests
-          command: cargo test --all -- --test-threads=1
+          command: cargo test --all
       - run:
           name: Run optional features' tests
-          command: cargo test --features=ring_verifier -- --test-threads=1
+          command: cargo test --features=ring_verifier
 workflows:
   version: 2
   test:
