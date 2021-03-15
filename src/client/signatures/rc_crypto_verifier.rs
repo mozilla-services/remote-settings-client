@@ -32,10 +32,9 @@ impl Verification for RcCryptoVerifier {
             signature::UnparsedPublicKey::new(&signature::ECDSA_P384_SHA384, &public_key_bytes);
 
         // Instantiate signature
-        let b64_signature = match collection.metadata["signature"]["signature"].as_str() {
-            Some(b64_signature) => b64_signature,
-            None => "",
-        };
+        let b64_signature = collection.metadata["signature"]["signature"]
+            .as_str()
+            .unwrap_or("");
         let signature_bytes = base64::decode_config(&b64_signature, base64::URL_SAFE)?;
 
         // Serialized data.
@@ -43,7 +42,7 @@ impl Verification for RcCryptoVerifier {
         sorted_records.sort_by(|a, b| (a["id"]).to_string().cmp(&b["id"].to_string()));
         let serialized = canonical_json::to_string(&json!({
             "data": sorted_records,
-            "last_modified": collection.timestamp.to_string().to_owned()
+            "last_modified": collection.timestamp.to_string()
         }))?;
 
         let data = format!("Content-Signature:\x00{}", serialized);
