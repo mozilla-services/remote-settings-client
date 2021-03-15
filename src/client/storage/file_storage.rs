@@ -7,7 +7,7 @@ use {
 };
 
 pub struct FileStorage {
-    folder: String,
+    pub folder: String,
 }
 
 impl From<std::io::Error> for StorageError {
