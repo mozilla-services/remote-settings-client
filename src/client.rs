@@ -5,6 +5,8 @@
 mod kinto_http;
 mod signatures;
 
+use serde::Serialize;
+
 use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject};
 pub use signatures::{SignatureError, Verification};
 
@@ -42,7 +44,7 @@ impl From<SignatureError> for ClientError {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Record(serde_json::Value);
 
 impl Record {
@@ -83,6 +85,17 @@ impl Record {
     // Return a field value.
     pub fn get(&self, key: &str) -> Option<&serde_json::Value> {
         self.as_object().get(key)
+    }
+}
+
+impl<I> std::ops::Index<I> for Record
+where
+    I: serde_json::value::Index,
+{
+    type Output = serde_json::Value;
+    fn index(&self, index: I) -> &serde_json::Value {
+        static NULL: serde_json::Value = serde_json::Value::Null;
+        index.index_into(&self.0).unwrap_or(&NULL)
     }
 }
 
@@ -478,9 +491,17 @@ mod tests {
         assert_eq!(r.id(), "abc");
         assert_eq!(r.last_modified(), 100);
         assert_eq!(r.deleted(), false);
-        assert_eq!(r.get("foo").unwrap().get("bar").unwrap().as_u64(), Some(42));
+
+        // Access fields by index
+        assert_eq!(r["pi"].as_str(), Some("3.14"));
+        assert_eq!(r["foo"]["bar"].as_u64(), Some(42));
+        assert_eq!(r["bar"], serde_json::Value::Null);
+
+        // Or by get() as optional value
         assert_eq!(r.get("bar"), None);
+        assert_eq!(r.get("pi").unwrap().as_str(), Some("3.14"));
         assert_eq!(r.get("pi").unwrap().as_f64(), None);
+        assert_eq!(r.get("foo").unwrap().get("bar").unwrap().as_u64(), Some(42));
 
         let r = Record(json!({
             "id": "abc",

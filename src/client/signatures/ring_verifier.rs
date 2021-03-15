@@ -100,7 +100,8 @@ impl Verification for RingVerifier {
 #[cfg(feature = "ring_verifier")]
 #[cfg(test)]
 mod tests {
-    use super::{Collection, RingVerifier, Verification};
+    use super::RingVerifier;
+    use crate::{Collection, Record, Verification};
     use env_logger;
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
@@ -225,7 +226,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                     })
                 }),
                 timestamp: 1594998798350,
-                records: vec![json!("record1")],
+                records: vec![Record::new(json!("record1"))],
             },
             VALID_CERTIFICATE,
             true,
