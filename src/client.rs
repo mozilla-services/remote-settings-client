@@ -173,7 +173,7 @@ impl ClientBuilder {
 ///
 /// ## Signature verification
 ///
-/// When no verifier is explicit specified, a dummy verifier is used.
+/// When no verifier is explicitly specified, a dummy verifier is used.
 ///
 /// ### `ring`
 ///
