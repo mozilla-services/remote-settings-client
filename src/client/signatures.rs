@@ -136,7 +136,8 @@ mod tests {
 
         let mock_server: MockServer = MockServer::start();
 
-        const VALID_CERTIFICATE: &str = r#"-----BEGIN CERTIFICATE-----
+        const VALID_CERTIFICATE: &str = r#"\
+-----BEGIN CERTIFICATE-----
 MIIDBjCCAougAwIBAgIIFiJLFfdxFlYwCgYIKoZIzj0EAwMwgaMxCzAJBgNVBAYT
 AlVTMRwwGgYDVQQKExNNb3ppbGxhIENvcnBvcmF0aW9uMS8wLQYDVQQLEyZNb3pp
 bGxhIEFNTyBQcm9kdWN0aW9uIFNpZ25pbmcgU2VydmljZTFFMEMGA1UEAww8Q29u
@@ -156,7 +157,8 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
 6/ZrZMp6Wq/0ow==
 -----END CERTIFICATE-----"#;
 
-        const INVALID_CERTIFICATE: &str = r#"-----BEGIN CERTIFICATE-----
+        const INVALID_CERTIFICATE: &str = r#"\
+-----BEGIN CERTIFICATE-----
 invalidCertificategIFiJLFfdxFlYwCgYIKoZIzj0EAwMwgaMxCzAJBgNVBAYT
 AlVTMRwwGgYDVQQKExNNb3ppbGxhIENvcnBvcmF0aW9uMS8wLQYDVQQLEyZNb3pp
 bGxhIEFNTyBQcm9kdWN0aW9uIFNpZ25pbmcgU2VydmljZTFFMEMGA1UEAww8Q29u
