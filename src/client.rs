@@ -761,6 +761,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "ring_verifier")]
     fn test_sync_uses_x5u_from_metadata_to_verify_signatures() {
         init();
 
