@@ -21,17 +21,44 @@ pub struct ChangesetResponse {
     pub timestamp: u64,
 }
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct ErrorResponse {
+    pub code: u16,
+    pub errno: u16,
+    pub error: String,
+    pub message: String,
+    pub details: Option<serde_json::Value>,
+}
+
+#[derive(Debug, PartialEq)]
 pub enum KintoError {
-    ClientError { name: String },
-    ServerError { name: String },
+    /// Errors related to a malformed request.
+    ClientError {
+        name: String,
+        response: Option<ErrorResponse>,
+    },
+    /// Errors occured on the server side.
+    ServerError {
+        name: String,
+        response: Option<ErrorResponse>,
+    },
+}
+
+impl std::fmt::Display for ErrorResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "HTTP {} {}: {} (#{})",
+            self.code, self.error, self.message, self.errno
+        )
+    }
 }
 
 impl From<ViaductError> for KintoError {
     fn from(err: ViaductError) -> Self {
-        info!("Viaduct error {}", err);
         KintoError::ClientError {
             name: format!("Viaduct error: {}", err),
+            response: None,
         }
     }
 }
@@ -41,15 +68,16 @@ impl From<serde_json::error::Error> for KintoError {
         info!("JSON error: {}", err);
         KintoError::ServerError {
             name: format!("JSON error: {}", err),
+            response: None,
         }
     }
 }
 
 impl From<ParseError> for KintoError {
     fn from(err: ParseError) -> Self {
-        info!("Parse error: {}", err);
         KintoError::ClientError {
-            name: format!("Parse error: {}", err),
+            name: format!("URL parse error: {}", err),
+            response: None,
         }
     }
 }
@@ -62,18 +90,17 @@ pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result
         .find(|&x| x["bucket"] == bid && x["collection"] == cid)
         .ok_or(KintoError::ClientError {
             name: format!("Unknown collection {}/{}", bid, cid),
+            response: None,
         })?;
 
     let last_modified = change["last_modified"]
         .as_u64()
         .ok_or(KintoError::ServerError {
             name: format!("Bad server timestamp: {}", change["last_modified"]),
+            response: None,
         })?;
 
-    debug!(
-        "collection: {}, bucket: {}, last_modified: {}",
-        cid, bid, last_modified
-    );
+    debug!("{}/{}: last_modified={}", bid, cid, last_modified);
 
     Ok(last_modified)
 }
@@ -84,20 +111,37 @@ pub fn get_changeset(
     cid: &str,
     expected: Option<u64>,
 ) -> Result<ChangesetResponse, KintoError> {
-    debug!(
-        "The expected timestamp for bucket={}, collection={} is {:?}",
-        bid, cid, expected
-    );
     let cache_bust = expected.unwrap_or(0);
     let url = format!(
         "{}/buckets/{}/collections/{}/changeset?_expected={}",
         server, bid, cid, cache_bust
     );
     info!("Fetch {}...", url);
-
     let resp = Request::get(Url::parse(&url)?).send()?;
 
-    info!("The response is {:?}", resp);
+    if !resp.is_success() {
+        let error: ErrorResponse = resp.json().unwrap_or(ErrorResponse {
+            code: resp.status,
+            errno: 999,
+            error: "Unknown".to_owned(),
+            message: "Bad error format".to_owned(),
+            details: None,
+        });
+
+        if resp.is_client_error() {
+            return Err(KintoError::ClientError {
+                name: format!("{} for {}", error, resp.url.path()),
+                response: Some(error),
+            });
+        }
+
+        if resp.is_server_error() {
+            return Err(KintoError::ServerError {
+                name: format!("{} from {}", error, resp.url.path()),
+                response: Some(error),
+            });
+        }
+    }
 
     let size: i64 = match resp.headers.get("content-length") {
         Some(val) => val.parse().unwrap_or(-1),
@@ -105,7 +149,6 @@ pub fn get_changeset(
     };
 
     debug!("Download {:?} bytes...", size);
-
     let result: ChangesetResponse = resp.json()?;
 
     Ok(result)
@@ -113,7 +156,7 @@ pub fn get_changeset(
 
 #[cfg(test)]
 mod tests {
-    use super::{get_latest_change_timestamp, KintoError};
+    use super::{get_changeset, get_latest_change_timestamp, KintoError};
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
     use viaduct::set_backend;
@@ -168,8 +211,8 @@ mod tests {
         let err =
             get_latest_change_timestamp("%^", "main", "url-classifier-skip-urls").unwrap_err();
         match err {
-            KintoError::ClientError { name } => {
-                assert_eq!(name, "Parse error: relative URL without a base")
+            KintoError::ClientError { name, .. } => {
+                assert_eq!(name, "URL parse error: relative URL without a base")
             }
             e => assert!(false, format!("Unexpected error type: {:?}", e)),
         };
@@ -198,7 +241,7 @@ mod tests {
                 .unwrap_err();
 
         match err {
-            KintoError::ServerError { name } => {
+            KintoError::ServerError { name, .. } => {
                 assert!(name.contains("JSON error: control character"))
             }
             e => assert!(false, format!("Unexpected error type: {:?}", e)),
@@ -240,10 +283,97 @@ mod tests {
                 .unwrap_err();
 
         match err {
-            KintoError::ServerError { name } => assert_eq!(name, "Bad server timestamp: \"foo\""),
+            KintoError::ServerError { name, .. } => {
+                assert_eq!(name, "Bad server timestamp: \"foo\"")
+            }
             e => assert!(false, format!("Unexpected error type: {:?}", e)),
         };
 
         get_latest_change_mock.delete();
+    }
+
+    #[test]
+    fn test_client_error_response() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mock_server_address = mock_server.url("");
+
+        let mut get_changeset_mock = Mock::new()
+            .expect_method(GET)
+            .return_header("Content-Type", "application/json")
+            .expect_path("/buckets/main/collections/cfr/changeset")
+            .expect_query_param("_expected", "0")
+            .return_status(400)
+            .return_body(
+                r#"{
+                    "code": 400,
+                    "error": "Bad request",
+                    "errno": 123,
+                    "message": "Bad value '0' for _expected",
+                    "details": {
+                        "field": "_expected",
+                        "location": "querystring"
+                    }
+                }"#,
+            )
+            .create_on(&mock_server);
+
+        let err = get_changeset(&mock_server_address, "main", "cfr", None).unwrap_err();
+
+        match err {
+            KintoError::ClientError { name, response } => {
+                assert_eq!(name, "HTTP 400 Bad request: Bad value '0' for _expected (#123) for /buckets/main/collections/cfr/changeset".to_owned());
+                let info = &response.unwrap();
+                let details = info.details.as_ref().unwrap();
+                assert_eq!(info.errno, 123);
+                assert_eq!(info.code, 400);
+                assert_eq!(info.error, "Bad request");
+                assert_eq!(details["field"].as_str().unwrap(), "_expected");
+            }
+            e => assert!(false, format!("Unexpected error type: {:?}", e)),
+        };
+
+        get_changeset_mock.delete();
+    }
+
+    #[test]
+    fn test_server_error_response() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mock_server_address = mock_server.url("");
+
+        let mut get_changeset_mock = Mock::new()
+            .expect_method(GET)
+            .return_header("Content-Type", "application/json")
+            .expect_path("/buckets/main/collections/cfr/changeset")
+            .expect_query_param("_expected", "0")
+            .return_status(503)
+            .return_body(
+                r#"{
+                    "code": 503,
+                    "error": "Service unavailable",
+                    "errno": 999,
+                    "message": "Boom"
+                }"#,
+            )
+            .create_on(&mock_server);
+
+        let err = get_changeset(&mock_server_address, "main", "cfr", None).unwrap_err();
+
+        match err {
+            KintoError::ServerError { name, response } => {
+                assert_eq!(name, "HTTP 503 Service unavailable: Boom (#999) from /buckets/main/collections/cfr/changeset".to_owned());
+                let info = &response.unwrap();
+                assert_eq!(info.errno, 999);
+                assert_eq!(info.code, 503);
+                assert_eq!(info.error, "Service unavailable");
+                assert_eq!(info.details, None);
+            }
+            e => assert!(false, format!("Unexpected error type: {:?}", e)),
+        };
+
+        get_changeset_mock.delete();
     }
 }

@@ -9,7 +9,9 @@ mod storage;
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
 
-use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject};
+use kinto_http::{
+    get_changeset, get_latest_change_timestamp, ErrorResponse, KintoError, KintoObject,
+};
 pub use signatures::{SignatureError, Verification};
 pub use storage::{dummy_storage::DummyStorage, file_storage::FileStorage, Storage, StorageError};
 
@@ -26,16 +28,23 @@ pub const DEFAULT_BUCKET_NAME: &str = "main";
 
 #[derive(Debug, PartialEq)]
 pub enum ClientError {
-    VerificationError { name: String },
-    StorageError { name: String },
-    Error { name: String },
+    VerificationError {
+        name: String,
+    },
+    StorageError {
+        name: String,
+    },
+    APIError {
+        name: String,
+        response: Option<ErrorResponse>,
+    },
 }
 
 impl From<KintoError> for ClientError {
     fn from(err: KintoError) -> Self {
         match err {
-            KintoError::ServerError { name } => ClientError::Error { name },
-            KintoError::ClientError { name } => ClientError::Error { name },
+            KintoError::ServerError { name, response } => ClientError::APIError { name, response },
+            KintoError::ClientError { name, response } => ClientError::APIError { name, response },
         }
     }
 }
@@ -427,11 +436,12 @@ mod tests {
                 "changes": [],
                 "timestamp": 0
             }"#,
-            Err(ClientError::Error {
+            Err(ClientError::APIError {
                 name: format!(
                     "Unknown collection {}/{}",
                     "main", "url-classifier-skip-urls"
                 ),
+                response: None,
             }),
         );
     }
