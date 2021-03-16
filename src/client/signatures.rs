@@ -100,13 +100,13 @@ mod tests {
             .return_body(certificate)
             .create_on(&mock_server);
 
-        let mut verifiers: Vec<&dyn Verification> = Vec::new();
+        let mut verifiers: Vec<Box<dyn Verification>> = Vec::new();
 
         #[cfg(feature = "ring_verifier")]
-        verifiers.push(&super::ring_verifier::RingVerifier {});
+        verifiers.push(Box::new(super::ring_verifier::RingVerifier {}));
 
         #[cfg(feature = "rc_crypto_verifier")]
-        verifiers.push(&super::rc_crypto_verifier::RcCryptoVerifier {});
+        verifiers.push(Box::new(super::rc_crypto_verifier::RcCryptoVerifier {}));
 
         for verifier in &verifiers {
             if should_fail {
