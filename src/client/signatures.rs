@@ -112,13 +112,7 @@ mod tests {
             if should_fail {
                 assert!(verifier.verify(&collection).is_err())
             } else {
-                match verifier.verify(&collection) {
-                    Err(err) => {
-                        println!("{:?}", err);
-                        assert!(false)
-                    }
-                    Ok(_) => println!("success"),
-                }
+                assert!(verifier.verify(&collection).is_ok());
             }
         }
 
