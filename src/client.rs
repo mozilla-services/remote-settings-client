@@ -87,6 +87,7 @@ pub struct ClientBuilder {
     verifier: Box<dyn Verification>,
     storage: Box<dyn Storage>,
     sync_if_empty: bool,
+    trust_local: bool,
 }
 
 impl Default for ClientBuilder {
@@ -107,6 +108,7 @@ impl ClientBuilder {
             verifier: Box::new(DefaultVerifier {}),
             storage: Box::new(DummyStorage {}),
             sync_if_empty: true,
+            trust_local: true,
         }
     }
 
@@ -140,9 +142,15 @@ impl ClientBuilder {
         self
     }
 
-    /// Should it synchronize when local DB is empty
+    /// Should [`get()`] synchronize when local DB is empty (*default*: `true`)
     pub fn sync_if_empty(mut self, sync_if_empty: bool) -> ClientBuilder {
         self.sync_if_empty = sync_if_empty;
+        self
+    }
+
+    /// Should [`get()`] verify signature of local DB (*default*: `true`)
+    pub fn trust_local(mut self, trust_local: bool) -> ClientBuilder {
+        self.trust_local = trust_local;
         self
     }
 
@@ -155,6 +163,7 @@ impl ClientBuilder {
             verifier: self.verifier,
             storage: self.storage,
             sync_if_empty: self.sync_if_empty,
+            trust_local: self.trust_local,
         }
     }
 }
@@ -203,6 +212,7 @@ pub struct Client {
     verifier: Box<dyn Verification>,
     storage: Box<dyn Storage>,
     sync_if_empty: bool,
+    trust_local: bool,
 }
 
 impl Default for Client {
@@ -259,8 +269,14 @@ impl Client {
         let stored: Option<Collection> = serde_json::from_slice(&stored_bytes).unwrap_or(None);
 
         match stored {
-            // TODO: add `verifySignature` option to make sure local data was not tampered.
-            Some(collection) => Ok(collection.records),
+            Some(collection) => {
+                if !self.trust_local {
+                    debug!("Verify signature of local data.");
+                    self.verifier.verify(&collection)?;
+                }
+
+                Ok(collection.records)
+            }
             None => {
                 if self.sync_if_empty {
                     debug!("Synchronize data, without knowning which timestamp to expect.");
@@ -394,6 +410,7 @@ mod tests {
     use env_logger;
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
+    use serde_json::json;
     use viaduct::set_backend;
     use viaduct_reqwest::ReqwestBackend;
 
@@ -454,6 +471,42 @@ mod tests {
         client.storage.store("main/cfr", b"abc".to_vec()).unwrap();
 
         assert_eq!(client.get().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_get_bad_stored_data_if_untrusted() {
+        init();
+        let mock_server = MockServer::start();
+
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("search-config")
+            .storage(Box::new(MemoryStorage::new()))
+            .verifier(Box::new(VerifierWithInvalidSignatureError {}))
+            .sync_if_empty(false)
+            .trust_local(false)
+            .build();
+
+        let collection = Collection {
+            bid: "main".to_owned(),
+            cid: "search-config".to_owned(),
+            metadata: json!({}),
+            records: vec![json!({})],
+            timestamp: 42,
+        };
+        let collection_bytes: Vec<u8> = serde_json::to_string(&collection).unwrap().into();
+        client
+            .storage
+            .store("main/search-config:collection", collection_bytes)
+            .unwrap();
+
+        let err = client.get().unwrap_err();
+        assert_eq!(
+            err,
+            ClientError::VerificationError {
+                name: "invalid signature error from tests".to_owned()
+            }
+        );
     }
 
     #[test]
