@@ -12,7 +12,7 @@ ring_verifier = ["x509-parser", "ring"]
 rc_crypto_verifier = ["x509-parser", "rc_crypto"]
 
 [dev-dependencies]
-env_logger = "0.7.1"
+env_logger = "0.8.3"
 httpmock = "0.4.2"
 viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
 
