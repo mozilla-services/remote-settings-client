@@ -19,21 +19,56 @@ jobs:
           name: Build all targets
           command: cargo build --all --all-targets
       - run:
-          name: Build documentation
-          command: cargo doc --all-features
+          name: Build NSS dependency
+          command: |
+            if [ ! -d "libs/" ]; then
+              # Install ninja-build locally
+              mkdir bin && pushd bin
+              wget https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-linux.zip
+              unzip ninja-linux.zip
+              # Pretend to have TCL to make `build-all.sh` happy.
+              touch tclsh && chmod +x tclsh
+              export PATH="$(pwd):$PATH"
+              popd
+
+              # Install pip locally.
+              curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py
+              python get-pip.py
+              pip install gyp-next
+
+              # Download and compile NSS.
+              mkdir libs && pushd libs
+              wget https://github.com/mozilla/application-services/raw/v73.0.1/libs/build-all.sh
+              wget https://github.com/mozilla/application-services/raw/v73.0.1/libs/build-nss-desktop.sh
+              touch build-sqlcipher-desktop.sh  # no-op.
+              chmod +x *.sh
+              ./build-all.sh desktop
+              popd
+            fi
       - save_cache:
           paths:
             - /usr/local/cargo/registry
             - target/debug/.fingerprint
             - target/debug/build
             - target/debug/deps
+            - libs/
           key: v4-cargo-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
       - run:
           name: Run tests
-          command: cargo test --all
+          command: |
+            export APPSERVICES_PLATFORM_DIR="$(pwd)/libs/desktop/linux-x86-64"
+            export NSS_DIR=${APPSERVICES_PLATFORM_DIR}/nss
+            export NSS_STATIC=1
+
+            cargo test --all-features
       - run:
-          name: Run optional features' tests
-          command: cargo test --features=ring_verifier
+          name: Build documentation
+          command: |
+            export APPSERVICES_PLATFORM_DIR="$(pwd)/libs/desktop/linux-x86-64"
+            export NSS_DIR=${APPSERVICES_PLATFORM_DIR}/nss
+            export NSS_STATIC=1
+
+            cargo doc --all-features
 workflows:
   version: 2
   test:

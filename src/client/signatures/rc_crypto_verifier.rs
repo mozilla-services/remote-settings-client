@@ -5,25 +5,23 @@ use {
     super::x509,
     super::{Collection, SignatureError, Verification},
     log::debug,
-    ring::signature,
+    rc_crypto::signature,
 };
 
-pub struct RingVerifier {}
+pub struct RcCryptoVerifier {}
 
-impl RingVerifier {}
+impl RcCryptoVerifier {}
 
-impl Verification for RingVerifier {
+impl Verification for RcCryptoVerifier {
     fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
-        debug!("Verifying using x509-parser and ring");
+        debug!("Verifying using x509-parser and rc_crypto");
 
         // Get public key from certificate (PEM from `x5u` field).
         let pem_bytes = self.fetch_certificate_chain(&collection)?;
 
         let public_key_bytes = x509::extract_public_key(pem_bytes)?;
-        let public_key = signature::UnparsedPublicKey::new(
-            &signature::ECDSA_P384_SHA384_FIXED,
-            &public_key_bytes,
-        );
+        let public_key =
+            signature::UnparsedPublicKey::new(&signature::ECDSA_P384_SHA384, &public_key_bytes);
 
         let signature_bytes = self.decode_signature(&collection)?;
 

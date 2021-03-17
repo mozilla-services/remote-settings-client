@@ -5,15 +5,16 @@
 //! ## Example
 //!
 //! ```rust
-//!   use remote_settings_client::Client;
-//!   pub use viaduct::set_backend;
-//!   pub use viaduct_reqwest::ReqwestBackend;
+//!   use remote_settings_client::{Client, RingVerifier};
+//!   use viaduct::set_backend;
+//!   use viaduct_reqwest::ReqwestBackend;
 //!
 //!   set_backend(&ReqwestBackend).unwrap();
 //!
 //!   let mut client = Client::builder()
 //!     .bucket_name("main-preview")
 //!     .collection_name("search-config")
+//!     .verifier(Box::new(RingVerifier {}))
 //!     .build();
 //!
 //!   match client.get() {
@@ -33,3 +34,9 @@ pub use client::StorageError;
 pub use client::Verification;
 pub use client::DEFAULT_BUCKET_NAME;
 pub use client::DEFAULT_SERVER_URL;
+
+#[cfg(feature = "ring_verifier")]
+pub use crate::client::RingVerifier;
+
+#[cfg(feature = "rc_crypto_verifier")]
+pub use crate::client::RcCryptoVerifier;
