@@ -67,13 +67,64 @@ impl From<SignatureError> for ClientError {
     }
 }
 
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct Record(serde_json::Value);
+
+impl Record {
+    pub fn new(value: serde_json::Value) -> Record {
+        Record(value)
+    }
+
+    // Return the underlying [`serde_json::Value`].
+    pub fn as_object(&self) -> &serde_json::Map<String, serde_json::Value> {
+        // Record data is always an object.
+        &self.0.as_object().unwrap()
+    }
+
+    // Return the record id.
+    pub fn id(&self) -> &str {
+        // `id` field is always present as a string.
+        self.0["id"].as_str().unwrap()
+    }
+
+    // Return the record timestamp.
+    pub fn last_modified(&self) -> u64 {
+        // `last_modified` field is always present as a uint.
+        self.0["last_modified"].as_u64().unwrap()
+    }
+
+    // Return true if the record is a tombstone.
+    pub fn deleted(&self) -> bool {
+        match self.get("deleted") {
+            Some(v) => v.as_bool().unwrap_or(false),
+            None => false,
+        }
+    }
+
+    // Return a field value.
+    pub fn get(&self, key: &str) -> Option<&serde_json::Value> {
+        self.0.get(key)
+    }
+}
+
+impl<I> std::ops::Index<I> for Record
+where
+    I: serde_json::value::Index,
+{
+    type Output = serde_json::Value;
+    fn index(&self, index: I) -> &serde_json::Value {
+        static NULL: serde_json::Value = serde_json::Value::Null;
+        index.index_into(&self.0).unwrap_or(&NULL)
+    }
+}
+
 /// Representation of a collection on the server
 #[derive(Debug, PartialEq, Deserialize, Serialize, Clone)]
 pub struct Collection {
     pub bid: String,
     pub cid: String,
     pub metadata: KintoObject,
-    pub records: Vec<KintoObject>,
+    pub records: Vec<Record>,
     pub timestamp: u64,
 }
 
@@ -254,11 +305,17 @@ impl Client {
             Some(remote_timestamp),
         )?;
 
+        let records = changeset_response
+            .changes
+            .iter()
+            .map(|v| Record::new(v.to_owned()))
+            .collect();
+
         let collection = Collection {
             bid: self.bucket_name.to_owned(),
             cid: self.collection_name.to_owned(),
             metadata: changeset_response.metadata,
-            records: changeset_response.changes,
+            records,
             timestamp: changeset_response.timestamp,
         };
 
@@ -291,7 +348,7 @@ impl Client {
     ///
     /// # Errors
     /// If an error occurs while fetching or verifying records, a [`ClientError`] is returned.
-    pub fn get(&mut self) -> Result<Vec<KintoObject>, ClientError> {
+    pub fn get(&mut self) -> Result<Vec<Record>, ClientError> {
         let storage_key = format!("{}/{}:collection", self.bucket_name, self.collection_name);
         debug!("Retrieve from storage with key={:?}", storage_key);
         let stored_bytes: Vec<u8> = self
@@ -330,7 +387,7 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::signatures::{SignatureError, Verification};
-    use super::{Client, ClientError, Collection};
+    use super::{Client, ClientError, Collection, Record};
     use env_logger;
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
@@ -374,7 +431,7 @@ mod tests {
         mut client: Client,
         latest_change_response: &str,
         records_response: &str,
-        expected_result: Result<Vec<serde_json::Value>, ClientError>,
+        expected_result: Result<Vec<Record>, ClientError>,
     ) {
         let mut get_latest_change_mock = Mock::new()
             .expect_method(GET)
@@ -497,10 +554,10 @@ mod tests {
                 }],
                 "timestamp": 0
             }"#,
-            Ok(vec![json!({
+            Ok(vec![Record(json!({
                 "id": 1,
                 "last_modified": 100
-            })]),
+            }))]),
         );
 
         test_get(
@@ -520,5 +577,44 @@ mod tests {
                 name: "invalid signature error".to_owned(),
             }),
         );
+    }
+
+    #[test]
+    fn test_record_fields() {
+        let r = Record(json!({
+            "id": "abc",
+            "last_modified": 100,
+            "foo": {"bar": 42},
+            "pi": "3.14"
+        }));
+
+        assert_eq!(r.id(), "abc");
+        assert_eq!(r.last_modified(), 100);
+        assert_eq!(r.deleted(), false);
+
+        // Access fields by index
+        assert_eq!(r["pi"].as_str(), Some("3.14"));
+        assert_eq!(r["foo"]["bar"].as_u64(), Some(42));
+        assert_eq!(r["bar"], serde_json::Value::Null);
+
+        // Or by get() as optional value
+        assert_eq!(r.get("bar"), None);
+        assert_eq!(r.get("pi").unwrap().as_str(), Some("3.14"));
+        assert_eq!(r.get("pi").unwrap().as_f64(), None);
+        assert_eq!(r.get("foo").unwrap().get("bar").unwrap().as_u64(), Some(42));
+
+        let r = Record(json!({
+            "id": "abc",
+            "last_modified": 100,
+            "deleted": true
+        }));
+        assert_eq!(r.deleted(), true);
+
+        let r = Record(json!({
+            "id": "abc",
+            "last_modified": 100,
+            "deleted": "foo"
+        }));
+        assert_eq!(r.deleted(), false);
     }
 }

@@ -28,6 +28,7 @@ pub mod client;
 
 pub use client::Client;
 pub use client::Collection;
+pub use client::Record;
 pub use client::SignatureError;
 pub use client::Storage;
 pub use client::StorageError;

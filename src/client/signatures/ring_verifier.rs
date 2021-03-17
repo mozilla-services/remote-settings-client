@@ -38,3 +38,4 @@ impl Verification for RingVerifier {
         }
     }
 }
+

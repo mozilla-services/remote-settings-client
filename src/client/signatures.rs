@@ -72,7 +72,7 @@ pub trait Verification {
 
     fn serialize_data(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
         let mut sorted_records = collection.records.to_vec();
-        sorted_records.sort_by_cached_key(|a| a["id"].as_str().unwrap().to_owned());
+        sorted_records.sort_by_cached_key(|a| a.id().to_owned());
         let serialized = canonical_json::to_string(&json!({
             "data": sorted_records,
             "last_modified": collection.timestamp.to_string()
@@ -135,7 +135,7 @@ impl From<canonical_json::CanonicalJSONError> for SignatureError {
 
 #[cfg(test)]
 mod tests {
-    use super::{Collection, SignatureError, Verification};
+    use crate::{Collection, Record, SignatureError, Verification};
     use env_logger;
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
@@ -342,7 +342,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                     })
                 }),
                 timestamp: 1594998798350,
-                records: vec![json!("record1")],
+                records: vec![Record::new(json!("record1"))],
             },
             VALID_CERTIFICATE,
             true,
