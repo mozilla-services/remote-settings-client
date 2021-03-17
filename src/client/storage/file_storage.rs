@@ -22,7 +22,9 @@ impl Default for FileStorage {
 
 impl From<std::io::Error> for StorageError {
     fn from(err: std::io::Error) -> Self {
-        err.into()
+        StorageError::WriteError {
+            name: err.to_string(),
+        }
     }
 }
 
@@ -58,7 +60,7 @@ impl Storage for FileStorage {
         {
             Err(err) => {
                 error!("Couldn't open or create {:?}: {}", path, err);
-                Err(StorageError::Error {
+                Err(StorageError::WriteError {
                     name: err.to_string(),
                 })
             }

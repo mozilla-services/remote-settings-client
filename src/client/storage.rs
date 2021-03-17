@@ -37,6 +37,6 @@ pub trait Storage {
 
 #[derive(Debug, PartialEq)]
 pub enum StorageError {
-    Error { name: String },
+    WriteError { name: String },
     ReadError { name: String },
 }

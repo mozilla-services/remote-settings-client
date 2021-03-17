@@ -44,19 +44,11 @@ impl From<KintoError> for ClientError {
     }
 }
 
-impl From<serde_json::error::Error> for ClientError {
-    fn from(err: serde_json::error::Error) -> Self {
-        ClientError::StorageError {
-            name: format!("Could not de/serialize data: {}", err.to_string()),
-        }
-    }
-}
-
 impl From<StorageError> for ClientError {
     fn from(err: StorageError) -> Self {
         match err {
             StorageError::ReadError { name } => ClientError::StorageError { name },
-            StorageError::Error { name } => ClientError::StorageError { name },
+            StorageError::WriteError { name } => ClientError::StorageError { name },
         }
     }
 }
@@ -455,7 +447,11 @@ impl Client {
         self.verifier.verify(&collection)?;
 
         debug!("Store collection with key={:?}", storage_key);
-        let collection_bytes: Vec<u8> = serde_json::to_string(&collection)?.into();
+        let collection_bytes: Vec<u8> = serde_json::to_string(&collection).map_err(|err| {
+            StorageError::WriteError {
+                name: format!("Cannot serialize collection: {}", err)
+            }
+        })?.into();
         self.storage.store(&storage_key, collection_bytes)?;
 
         Ok(collection)
