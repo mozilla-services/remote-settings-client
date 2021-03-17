@@ -17,7 +17,7 @@ httpmock = "0.4.2"
 viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "61dcc364ac0d6d0816ab88a494bbf20d824b009b"}
 
 [dependencies]
-base64 = "0.11.0"
+base64 = "0.13.0"
 canonical_json = "0.3.0"
 log = "0.4.0"
 url = "2.1"
