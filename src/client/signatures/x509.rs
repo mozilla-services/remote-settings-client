@@ -1,10 +1,5 @@
 use {
     super::SignatureError,
-    log::debug,
-    url::ParseError,
-    url::Url,
-    viaduct::Error as ViaductError,
-    viaduct::Request,
     x509_parser::{self, error as x509_errors, nom::Err as NomErr},
 };
 
@@ -24,38 +19,9 @@ impl From<NomErr<x509_errors::PEMError>> for SignatureError {
     }
 }
 
-impl From<ViaductError> for SignatureError {
-    fn from(err: ViaductError) -> Self {
-        SignatureError::CertificateError {
-            name: err.to_string(),
-        }
-    }
-}
-
-impl From<ParseError> for SignatureError {
-    fn from(err: ParseError) -> Self {
-        SignatureError::CertificateError {
-            name: err.to_string(),
-        }
-    }
-}
-
-pub fn fetch_public_key(x5u: &str) -> Result<Vec<u8>, SignatureError> {
-    debug!("Fetching certificate {}", x5u);
-
-    let resp = Request::get(Url::parse(&x5u)?).send()?;
-
-    if resp.status != 200 {
-        return Err(SignatureError::CertificateError {
-            name: format!("PEM could not be downloaded (HTTP {})", resp.status),
-        });
-    }
-
-    // Extram PEM.
-    // Use this command to debug:
+pub fn extract_public_key(pem_bytes: Vec<u8>) -> Result<Vec<u8>, SignatureError> {
     // ``openssl x509 -inform PEM -in cert.pem -text``
-    let pem_bytes = &resp.body;
-    let (_, pem) = x509_parser::pem::parse_x509_pem(pem_bytes)?;
+    let (_, pem) = x509_parser::pem::parse_x509_pem(&pem_bytes)?;
     if pem.label != "CERTIFICATE" {
         return Err(SignatureError::CertificateError {
             name: "PEM is not a certificate".to_string(),
@@ -75,58 +41,36 @@ pub fn fetch_public_key(x5u: &str) -> Result<Vec<u8>, SignatureError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{fetch_public_key, SignatureError};
-    use httpmock::Method::GET;
-    use httpmock::{Mock, MockServer};
-    use viaduct::set_backend;
-    use viaduct_reqwest::ReqwestBackend;
+    use super::{extract_public_key, SignatureError};
 
     #[test]
-    fn test_bad_url() {
-        let err = fetch_public_key("%^").unwrap_err();
-        match err {
-            SignatureError::CertificateError { name } => {
-                assert_eq!(name, "relative URL without a base")
-            }
-            _ => assert!(false),
-        };
-    }
+    fn test_bad_pem_content() {
+        let expectations: Vec<(&str, &str)> = vec![
+            ("%^", "Parsing Error: MissingHeader"),
+            (
+                "\
+-----BEGIN ENCRYPTED PRIVATE KEY-----
+bGxhIEFNTyBQcm9kdWN0aW9uIFNpZ25pbmcgU2VydmljZTFFMEMGA1UEAww8Q29u
+-----END ENCRYPTED PRIVATE KEY-----",
+                "PEM is not a certificate",
+            ),
+            (
+                "\
+-----BEGIN CERTIFICATE-----
+invalidCertificate
+-----END CERTIFICATE-----",
+                "Parsing Error: Base64DecodeError",
+            ),
+        ];
 
-    #[test]
-    fn test_download_error() {
-        let _ = set_backend(&ReqwestBackend);
-
-        let err = fetch_public_key("http://localhost:9999/bad").unwrap_err();
-        match err {
-            SignatureError::CertificateError { name } => {
-                assert!(name.contains("Network error: error sending request"))
-            }
-            _ => assert!(false),
-        };
-    }
-
-    #[test]
-    fn test_bad_status() {
-        let mock_server = MockServer::start();
-        let mock_server_address = mock_server.url("/file.pem");
-
-        let mut pem_mock = Mock::new()
-            .expect_method(GET)
-            .expect_path("/file.pem")
-            .return_status(404)
-            .create_on(&mock_server);
-
-        let err = fetch_public_key(&mock_server_address).unwrap_err();
-        match err {
-            SignatureError::CertificateError { name } => {
-                assert!(
-                    name.contains("PEM could not be downloaded (HTTP 404)"),
-                    name
-                )
-            }
-            _ => assert!(false),
-        };
-
-        pem_mock.delete();
+        for (input, error) in expectations {
+            let err = extract_public_key(input.into()).unwrap_err();
+            match err {
+                SignatureError::CertificateError { name } => {
+                    assert_eq!(name, error)
+                }
+                e => assert!(false, format!("Unexpected error type: {:?}", e)),
+            };
+        }
     }
 }

@@ -2,8 +2,10 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use crate::client::Collection;
-use canonical_json::CanonicalJSONError;
+use {
+    crate::client::Collection, canonical_json, log::debug, serde_json::json, url::ParseError,
+    url::Url, viaduct::Error as ViaductError, viaduct::Request,
+};
 
 pub mod dummy_verifier;
 
@@ -41,6 +43,45 @@ pub mod x509;
 /// # }
 /// ```
 pub trait Verification {
+    fn fetch_certificate_chain(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
+        // Fetch certificate PEM (public key).
+        let x5u = collection.metadata["signature"]["x5u"].as_str().ok_or(
+            SignatureError::InvalidSignature {
+                name: "x5u field not present in signature".to_owned(),
+            },
+        )?;
+
+        debug!("Fetching certificate {}", x5u);
+        let resp = Request::get(Url::parse(&x5u)?).send()?;
+        if !resp.is_success() {
+            return Err(SignatureError::CertificateError {
+                name: format!("PEM could not be downloaded (HTTP {})", resp.status),
+            });
+        }
+
+        Ok(resp.body)
+    }
+
+    fn decode_signature(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
+        let b64_signature = collection.metadata["signature"]["signature"]
+            .as_str()
+            .unwrap_or("");
+
+        Ok(base64::decode_config(&b64_signature, base64::URL_SAFE)?)
+    }
+
+    fn serialize_data(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
+        let mut sorted_records = collection.records.to_vec();
+        sorted_records.sort_by_cached_key(|a| a["id"].as_str().unwrap().to_owned());
+        let serialized = canonical_json::to_string(&json!({
+            "data": sorted_records,
+            "last_modified": collection.timestamp.to_string()
+        }))?;
+        let data = format!("Content-Signature:\x00{}", serialized);
+
+        Ok(data.as_bytes().to_vec())
+    }
+
     /// Verifies signature for a given ```Collection``` struct
     ///
     /// # Errors
@@ -62,6 +103,22 @@ pub enum SignatureError {
     VerificationError { name: String },
 }
 
+impl From<ViaductError> for SignatureError {
+    fn from(err: ViaductError) -> Self {
+        SignatureError::CertificateError {
+            name: err.to_string(),
+        }
+    }
+}
+
+impl From<ParseError> for SignatureError {
+    fn from(err: ParseError) -> Self {
+        SignatureError::CertificateError {
+            name: err.to_string(),
+        }
+    }
+}
+
 impl From<base64::DecodeError> for SignatureError {
     fn from(err: base64::DecodeError) -> Self {
         SignatureError::InvalidSignature {
@@ -70,19 +127,29 @@ impl From<base64::DecodeError> for SignatureError {
     }
 }
 
-impl From<CanonicalJSONError> for SignatureError {
-    fn from(err: CanonicalJSONError) -> Self {
+impl From<canonical_json::CanonicalJSONError> for SignatureError {
+    fn from(err: canonical_json::CanonicalJSONError) -> Self {
         err.into()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Collection, Verification};
+    use super::{Collection, SignatureError, Verification};
     use env_logger;
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
     use serde_json::json;
+    use viaduct::set_backend;
+    use viaduct_reqwest::ReqwestBackend;
+
+    struct BasicVerifier {}
+
+    impl Verification for BasicVerifier {
+        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
+            Ok(())
+        }
+    }
 
     fn verify_signature(
         mock_server: &MockServer,
@@ -122,6 +189,74 @@ mod tests {
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
+    }
+
+    #[test]
+    fn test_missing_x5u() {
+        let verifier = BasicVerifier {};
+        let collection = Collection {
+            bid: "".to_string(),
+            cid: "".to_string(),
+            metadata: json!({}),
+            records: vec![],
+            timestamp: 0,
+        };
+        let err = verifier.fetch_certificate_chain(&collection).unwrap_err();
+        match err {
+            SignatureError::InvalidSignature { name } => {
+                assert_eq!(name, "x5u field not present in signature")
+            }
+            e => assert!(false, format!("Unexpected error type: {:?}", e)),
+        };
+    }
+
+    #[test]
+    fn test_bad_x5u_urls() {
+        let verifier = BasicVerifier {};
+
+        let _ = set_backend(&ReqwestBackend);
+        let mock_server = MockServer::start();
+        let mock_server_address = mock_server.url("/file.pem");
+        let mut pem_mock = Mock::new()
+            .expect_method(GET)
+            .expect_path("/file.pem")
+            .return_status(404)
+            .create_on(&mock_server);
+
+        let expectations: Vec<(&str, &str)> = vec![
+            ("%^", "relative URL without a base"),
+            (
+                "http://localhost:9999/bad",
+                "Network error: error sending request",
+            ),
+            (
+                &mock_server_address,
+                "PEM could not be downloaded (HTTP 404)",
+            ),
+        ];
+
+        for (url, error) in expectations {
+            let collection = Collection {
+                bid: "".to_string(),
+                cid: "".to_string(),
+                metadata: json!({
+                    "signature": {
+                        "x5u": url
+                    }
+                }),
+                records: vec![],
+                timestamp: 0,
+            };
+            let err = verifier.fetch_certificate_chain(&collection).unwrap_err();
+            match err {
+                SignatureError::CertificateError { name } => {
+                    assert!(name.contains(error))
+                }
+                e => assert!(false, format!("Unexpected error type: {:?}", e)),
+            };
+        }
+
+        pem_mock.delete();
     }
 
     #[test]
