@@ -43,7 +43,7 @@ pub enum ClientError {
 impl From<KintoError> for ClientError {
     fn from(err: KintoError) -> Self {
         match err {
-            KintoError::ServerError { name, response } => ClientError::APIError { name, response },
+            KintoError::ServerError { name, response, .. } => ClientError::APIError { name, response },
             KintoError::ClientError { name, response } => ClientError::APIError { name, response },
         }
     }

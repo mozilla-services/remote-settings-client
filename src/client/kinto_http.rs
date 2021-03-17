@@ -40,6 +40,7 @@ pub enum KintoError {
     /// Errors occured on the server side.
     ServerError {
         name: String,
+        retry_after: Option<u64>,
         response: Option<ErrorResponse>,
     },
 }
@@ -87,6 +88,7 @@ pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result
         .as_u64()
         .ok_or(KintoError::ServerError {
             name: format!("Bad server timestamp: {}", change["last_modified"]),
+            retry_after: None,
             response: None,
         })?;
 
@@ -126,8 +128,14 @@ pub fn get_changeset(
         }
 
         if resp.is_server_error() {
+            let retry_after = match resp.headers.get("retry-after") {
+                Some(val) => val.parse::<u64>().ok(),
+                None => None,
+            };
+
             return Err(KintoError::ServerError {
                 name: format!("{} from {}", error, resp.url.path()),
+                retry_after,
                 response: Some(error),
             });
         }
@@ -141,6 +149,7 @@ pub fn get_changeset(
     debug!("Download {:?} bytes...", size);
     resp.json().map_err(|err| KintoError::ServerError {
         name: format!("JSON content error: {}", err),
+        retry_after: None,
         response: None,
     })
 }
@@ -338,6 +347,7 @@ mod tests {
         let mut get_changeset_mock = Mock::new()
             .expect_method(GET)
             .return_header("Content-Type", "application/json")
+            .return_header("Retry-After", "360")
             .expect_path("/buckets/main/collections/cfr/changeset")
             .expect_query_param("_expected", "0")
             .return_status(503)
@@ -354,8 +364,13 @@ mod tests {
         let err = get_changeset(&mock_server_address, "main", "cfr", None).unwrap_err();
 
         match err {
-            KintoError::ServerError { name, response } => {
+            KintoError::ServerError {
+                name,
+                retry_after,
+                response,
+            } => {
                 assert_eq!(name, "HTTP 503 Service unavailable: Boom (#999) from /buckets/main/collections/cfr/changeset".to_owned());
+                assert_eq!(retry_after, Some(360));
                 let info = &response.unwrap();
                 assert_eq!(info.errno, 999);
                 assert_eq!(info.code, 503);
