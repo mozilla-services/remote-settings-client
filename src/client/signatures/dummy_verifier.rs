@@ -3,9 +3,9 @@ use {
     log::debug,
 };
 
-pub struct DefaultVerifier {}
+pub struct DummyVerifier {}
 
-impl Verification for DefaultVerifier {
+impl Verification for DummyVerifier {
     fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
         debug!("default verifier implementation");
         Ok(())
