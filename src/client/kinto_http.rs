@@ -242,7 +242,7 @@ mod tests {
 
         match err {
             KintoError::ServerError { name, .. } => {
-                assert!(name.contains("JSON error: control character"))
+                assert!(name.contains("JSON content error: control character"))
             }
             e => assert!(false, format!("Unexpected error type: {:?}", e)),
         };
