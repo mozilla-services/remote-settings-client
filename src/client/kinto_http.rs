@@ -176,7 +176,7 @@ mod tests {
             KintoError::ClientError { name } => {
                 assert_eq!(name, "Parse error: relative URL without a base")
             }
-            _ => assert!(false),
+            e => assert!(false, format!("Unexpected error type: {:?}", e)),
         };
     }
 
@@ -206,7 +206,7 @@ mod tests {
             KintoError::ServerError { name } => {
                 assert!(name.contains("JSON error: control character"))
             }
-            _ => assert!(false),
+            e => assert!(false, format!("Unexpected error type: {:?}", e)),
         };
 
         get_latest_change_mock.delete();
@@ -246,7 +246,7 @@ mod tests {
 
         match err {
             KintoError::ServerError { name } => assert_eq!(name, "Bad server timestamp: \"foo\""),
-            _ => assert!(false),
+            e => assert!(false, format!("Unexpected error type: {:?}", e)),
         };
 
         get_latest_change_mock.delete();
