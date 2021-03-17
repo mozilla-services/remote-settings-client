@@ -72,7 +72,7 @@ pub trait Verification {
 
     fn serialize_data(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
         let mut sorted_records = collection.records.to_vec();
-        sorted_records.sort_by_cached_key(|a| a["id"].as_str().unwrap().to_owned());
+        sorted_records.sort_by_cached_key(|a| a.id().to_owned());
         let serialized = canonical_json::to_string(&json!({
             "data": sorted_records,
             "last_modified": collection.timestamp.to_string()
