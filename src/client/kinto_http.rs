@@ -63,16 +63,6 @@ impl From<ViaductError> for KintoError {
     }
 }
 
-impl From<serde_json::error::Error> for KintoError {
-    fn from(err: serde_json::error::Error) -> Self {
-        info!("JSON error: {}", err);
-        KintoError::ServerError {
-            name: format!("JSON error: {}", err),
-            response: None,
-        }
-    }
-}
-
 impl From<ParseError> for KintoError {
     fn from(err: ParseError) -> Self {
         KintoError::ClientError {
@@ -149,9 +139,10 @@ pub fn get_changeset(
     };
 
     debug!("Download {:?} bytes...", size);
-    let result: ChangesetResponse = resp.json()?;
-
-    Ok(result)
+    resp.json().map_err(|err| KintoError::ServerError {
+        name: format!("JSON content error: {}", err),
+        response: None,
+    })
 }
 
 #[cfg(test)]
