@@ -3,11 +3,11 @@ use {
     log::{debug, error},
     std::fs::OpenOptions,
     std::io::prelude::*,
-    std::path::{Path, PathBuf, MAIN_SEPARATOR},
+    std::path::{Path, PathBuf},
 };
 
 pub struct FileStorage {
-    folder: String,
+    pub folder: String,
 }
 
 impl From<std::io::Error> for StorageError {
@@ -18,7 +18,11 @@ impl From<std::io::Error> for StorageError {
 
 impl FileStorage {
     fn _pathfor(&self, key: &str) -> PathBuf {
-        let slug = key.replace(MAIN_SEPARATOR, "-").replace(".", "-");
+        let slug = key.chars().map(|c| match c {
+            'A'..='Z' => c,
+            'a'..='z' => c,
+            _ => '-',
+        }).collect::<String>();
         Path::new(&self.folder).join(format!("{}.bin", slug))
     }
 }
@@ -52,7 +56,7 @@ impl Storage for FileStorage {
         let mut file = match OpenOptions::new().read(true).write(false).open(&path) {
             Ok(file) => file,
             Err(err) => {
-                error!("Couldn't open {:?}: {}", path, err);
+                debug!("Couldn't open {:?}: {}", path, err);
                 return Ok(None);
             }
         };
