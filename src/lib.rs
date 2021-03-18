@@ -1,6 +1,6 @@
 //! # Remote Settings Client
 //!
-//! A library for fetching Remote Settings data.
+//! A library for fetching and synchronizing Remote Settings data.
 //!
 //! ## Example
 //!
@@ -17,6 +17,8 @@
 //!     .verifier(Box::new(RingVerifier {}))
 //!     .build();
 //!
+//!   client.sync(None).unwrap();
+//!
 //!   match client.get() {
 //!     Ok(records) => println!("{:?}", records),
 //!     Err(error) => println!("Error fetching/verifying records: {:?}", error),
@@ -28,6 +30,7 @@ pub mod client;
 
 pub use client::Client;
 pub use client::Collection;
+pub use client::Record;
 pub use client::SignatureError;
 pub use client::Storage;
 pub use client::StorageError;

@@ -38,8 +38,8 @@ jobs:
 
               # Download and compile NSS.
               mkdir libs && pushd libs
-              wget https://github.com/mozilla/application-services/raw/v73.0.1/libs/build-all.sh
-              wget https://github.com/mozilla/application-services/raw/v73.0.1/libs/build-nss-desktop.sh
+              wget https://github.com/mozilla/application-services/raw/v73.0.2/libs/build-all.sh
+              wget https://github.com/mozilla/application-services/raw/v73.0.2/libs/build-nss-desktop.sh
               touch build-sqlcipher-desktop.sh  # no-op.
               chmod +x *.sh
               ./build-all.sh desktop
@@ -69,6 +69,12 @@ jobs:
             export NSS_STATIC=1
 
             cargo doc --all-features
+      - run:
+          name: Run demo project
+          command: |
+            pushd rs-client-demo/
+            cargo run
+            popd
 workflows:
   version: 2
   test:

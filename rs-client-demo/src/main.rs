@@ -67,7 +67,7 @@ fn main() {
         let mut client = Client::builder()
             .bucket_name(&collection.bucket)
             .collection_name(&collection.collection)
-            .storage(Box::new(FileStorage { folder: "/tmp" }))
+            .storage(Box::new(FileStorage { folder: "/tmp".to_string() }))
             .build();
 
         match client.get() {
