@@ -16,8 +16,10 @@ pub mod x509;
 use crate::client::Collection;
 use log::debug;
 use serde_json::json;
-use url::{ParseError, Url};
-use viaduct::{Error as ViaductError, Request};
+use url::{ParseError as URLParseError, Url};
+use viaduct::{Error as ViaductError, Request, Response};
+
+use thiserror::Error;
 
 /// A trait for signature verification of collection data.
 ///
@@ -46,21 +48,19 @@ use viaduct::{Error as ViaductError, Request};
 pub trait Verification {
     fn fetch_certificate_chain(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
         // Fetch certificate PEM (public key).
-        let x5u = collection.metadata["signature"]["x5u"].as_str().ok_or(
-            SignatureError::InvalidSignature {
-                name: "x5u field not present in signature".to_owned(),
-            },
-        )?;
+        let x5u = collection.metadata["signature"]["x5u"]
+            .as_str()
+            .ok_or(SignatureError::MissingSignatureField())?;
 
         debug!("Fetching certificate {}", x5u);
-        let resp = Request::get(Url::parse(&x5u)?).send()?;
-        if !resp.is_success() {
-            return Err(SignatureError::CertificateError {
-                name: format!("PEM could not be downloaded (HTTP {})", resp.status),
+        let response = Request::get(Url::parse(&x5u)?).send()?;
+        if !response.is_success() {
+            return Err(SignatureError::CertificateDownloadError {
+                response,
             });
         }
 
-        Ok(resp.body)
+        Ok(response.body)
     }
 
     fn decode_signature(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
@@ -97,41 +97,25 @@ pub trait Verification {
     fn verify(&self, collection: &Collection) -> Result<(), SignatureError>;
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Error)]
 pub enum SignatureError {
-    CertificateError { name: String },
-    InvalidSignature { name: String },
-    VerificationError { name: String },
-}
-
-impl From<ViaductError> for SignatureError {
-    fn from(err: ViaductError) -> Self {
-        SignatureError::CertificateError {
-            name: err.to_string(),
-        }
-    }
-}
-
-impl From<ParseError> for SignatureError {
-    fn from(err: ParseError) -> Self {
-        SignatureError::CertificateError {
-            name: err.to_string(),
-        }
-    }
-}
-
-impl From<base64::DecodeError> for SignatureError {
-    fn from(err: base64::DecodeError) -> Self {
-        SignatureError::InvalidSignature {
-            name: err.to_string(),
-        }
-    }
-}
-
-impl From<canonical_json::CanonicalJSONError> for SignatureError {
-    fn from(err: canonical_json::CanonicalJSONError) -> Self {
-        err.into()
-    }
+    #[error("verification error: {0}")]
+    VerificationError(String),
+    #[error("certificate could not be downloaded from {}: HTTP {}", response.url, response.status)]
+    CertificateDownloadError { response: Response },
+    #[cfg(any(feature = "ring_verifier", feature = "rc_crypto_verifier"))]
+    #[error("certificate content could not be parsed: {0}")]
+    CertificateError(#[from] x509::X509Error),
+    #[error("signature contains invalid base64: {0}")]
+    BadSignatureContent(#[from] base64::DecodeError),
+    #[error("signature payload has no x5u field")]
+    MissingSignatureField(),
+    #[error("HTTP backend issue: {0}")]
+    HTTPBackendError(#[from] ViaductError),
+    #[error("bad URL format: {0}")]
+    URLError(#[from] URLParseError),
+    #[error("data could not be serialized: {0}")]
+    SerializationError(#[from] canonical_json::CanonicalJSONError),
 }
 
 #[cfg(test)]
@@ -204,9 +188,7 @@ mod tests {
         };
         let err = verifier.fetch_certificate_chain(&collection).unwrap_err();
         match err {
-            SignatureError::InvalidSignature { name } => {
-                assert_eq!(name, "x5u field not present in signature")
-            }
+            SignatureError::MissingSignatureField() => assert!(true),
             e => assert!(false, format!("Unexpected error type: {:?}", e)),
         };
     }
@@ -225,15 +207,12 @@ mod tests {
             .create_on(&mock_server);
 
         let expectations: Vec<(&str, &str)> = vec![
-            ("%^", "relative URL without a base"),
+            ("%^", "bad URL format: relative URL without a base"),
             (
                 "http://localhost:9999/bad",
                 "Network error: error sending request",
             ),
-            (
-                &mock_server_address,
-                "PEM could not be downloaded (HTTP 404)",
-            ),
+            (&mock_server_address, "/file.pem: HTTP 404"),
         ];
 
         for (url, error) in expectations {
@@ -249,12 +228,7 @@ mod tests {
                 timestamp: 0,
             };
             let err = verifier.fetch_certificate_chain(&collection).unwrap_err();
-            match err {
-                SignatureError::CertificateError { name } => {
-                    assert!(name.contains(error))
-                }
-                e => assert!(false, format!("Unexpected error type: {:?}", e)),
-            };
+            assert!(err.to_string().contains(error), err.to_string());
         }
 
         pem_mock.delete();
@@ -319,7 +293,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 cid: "pioneer-study-addons".to_owned(),
                 metadata: json!({
                     "signature": json!({
-                        "x5u": format!("{}/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain", mock_server.url("")),
+                        "x5u": mock_server.url("/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain"),
                         "signature": VALID_SIGNATURE
                     })
                 }),
@@ -338,7 +312,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 cid: "pioneer-study-addons".to_owned(),
                 metadata: json!({
                     "signature": json!({
-                        "x5u": format!("{}/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain", mock_server.url("")),
+                        "x5u": mock_server.url("/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain"),
                         "signature": VALID_SIGNATURE
                     })
                 }),
@@ -357,7 +331,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 cid: "pioneer-study-addons".to_owned(),
                 metadata: json!({
                     "signature": json!({
-                        "x5u": format!("{}/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain", mock_server.url("")),
+                        "x5u": mock_server.url("/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain"),
                         "signature": INVALID_SIGNATURE
                     })
                 }),
@@ -376,7 +350,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 cid: "pioneer-study-addons".to_owned(),
                 metadata: json!({
                     "signature": json!({
-                        "x5u": format!("{}/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain", mock_server.url("")),
+                        "x5u": mock_server.url("/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain"),
                         "signature": VALID_SIGNATURE
                     })
                 }),
