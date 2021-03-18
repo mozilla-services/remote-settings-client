@@ -9,6 +9,7 @@
 //! ## Example
 //!
 //! ```rust
+//! # #[cfg(feature = "ring_verifier")] {
 //!   use remote_settings_client::{Client, RingVerifier};
 //!   use viaduct::set_backend;
 //!   use viaduct_reqwest::ReqwestBackend;
@@ -27,6 +28,7 @@
 //!     Ok(records) => println!("{:?}", records),
 //!     Err(error) => println!("Error fetching/verifying records: {:?}", error),
 //!   };
+//! # }
 //! ```
 //!
 //! See [`Client`] for more infos.
