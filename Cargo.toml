@@ -14,7 +14,7 @@ rc_crypto_verifier = ["x509-parser", "rc_crypto"]
 [dev-dependencies]
 env_logger = "0.8.3"
 httpmock = "0.5.6"
-viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v73.0.1"}
+viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v73.0.2"}
 
 [dependencies]
 base64 = "0.13.0"
