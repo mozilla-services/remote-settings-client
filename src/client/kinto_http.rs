@@ -321,7 +321,7 @@ mod tests {
             )
             .create_on(&mock_server);
 
-        let err = get_changeset(&mock_server_address, "main", "cfr", None).unwrap_err();
+        let err = get_changeset(&mock_server_address, "main", "cfr", None, None).unwrap_err();
 
         match err {
             KintoError::ClientError { name, response } => {
@@ -363,7 +363,7 @@ mod tests {
             )
             .create_on(&mock_server);
 
-        let err = get_changeset(&mock_server_address, "main", "cfr", None).unwrap_err();
+        let err = get_changeset(&mock_server_address, "main", "cfr", None, None).unwrap_err();
 
         match err {
             KintoError::ServerError {
