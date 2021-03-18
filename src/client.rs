@@ -265,7 +265,7 @@ impl ClientBuilder {
 ///
 /// ### `rc_crypto`
 ///
-/// With the `rc_crypto` feature, a signature verifier leveraging the [`rc_crypto` crate](https://github.com/mozilla/application-services/tree/v73.0.1/components/support/rc_crypto).
+/// With the `rc_crypto` feature, a signature verifier leveraging the [`rc_crypto` crate](https://github.com/mozilla/application-services/tree/v73.0.2/components/support/rc_crypto).
 /// ```rust
 /// # use remote_settings_client::Client;
 /// use remote_settings_client::RcCryptoVerifier;

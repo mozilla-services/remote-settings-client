@@ -11,7 +11,7 @@ log = "0.4.0"
 env_logger = "0.7.1"
 serde_json = "1.0"
 # Specifying viaduct, viaduct-reqwest dependency from git repo since viaduct, viaduct-reqwest are not published yet to crates.io
-viaduct = { git = "https://github.com/mozilla/application-services", rev = "v73.0.1"}
-viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v73.0.1"}
+viaduct = { git = "https://github.com/mozilla/application-services", rev = "v73.0.2"}
+viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v73.0.2"}
 url = "2.1"
 serde = { version = "1.0", features = ["derive"] }
