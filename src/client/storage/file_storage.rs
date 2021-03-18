@@ -7,7 +7,17 @@ use {
 };
 
 pub struct FileStorage {
-    pub folder: String,
+    pub folder: PathBuf,
+    pub extension: String,
+}
+
+impl Default for FileStorage {
+    fn default() -> Self {
+        Self {
+            folder: PathBuf::from("."),
+            extension: "bin".to_string(),
+        }
+    }
 }
 
 impl From<std::io::Error> for StorageError {
@@ -29,7 +39,11 @@ impl FileStorage {
                 _ => '+',
             })
             .collect::<String>();
-        Path::new(&self.folder).join(format!("{}.bin", slug))
+
+        let mut p = Path::new(&self.folder).join(slug);
+        p.set_extension(&self.extension);
+
+        p
     }
 }
 
@@ -101,9 +115,7 @@ mod tests {
     fn test_store_key_value_with_no_file_present() {
         init();
 
-        let mut storage = FileStorage {
-            folder: ".".to_string(),
-        };
+        let mut storage = FileStorage::default();
         cleanup("./store-key.bin");
 
         storage
@@ -122,9 +134,7 @@ mod tests {
     fn test_store_overwrite_file() {
         init();
 
-        let mut storage = FileStorage {
-            folder: ".".to_string(),
-        };
+        let mut storage = FileStorage::default();
 
         storage
             .store("overwrite-key", "some value".as_bytes().to_vec())
@@ -146,9 +156,7 @@ mod tests {
     fn test_retrieve_cannot_find_file() {
         init();
 
-        let storage = FileStorage {
-            folder: ".".to_string(),
-        };
+        let storage = FileStorage::default();
         cleanup("./unknown-key.bin");
 
         assert!(storage.retrieve("unknown-key").unwrap().is_none());
