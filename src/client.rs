@@ -368,7 +368,7 @@ impl Client {
             .storage
             .retrieve(&storage_key)
             // TODO: surface errors. See #79
-            .unwrap_or(Vec::new());
+            .unwrap_or_default();
         let stored: Option<Collection> = serde_json::from_slice(&stored_bytes).unwrap_or(None);
 
         match stored {
@@ -409,7 +409,7 @@ impl Client {
         let storage_key = self._storage_key();
 
         debug!("Retrieve from storage with key={:?}", storage_key);
-        let stored_bytes: Vec<u8> = self.storage.retrieve(&storage_key).unwrap_or(Vec::new());
+        let stored_bytes: Vec<u8> = self.storage.retrieve(&storage_key).unwrap_or_default();
         let stored: Option<Collection> = serde_json::from_slice(&stored_bytes).unwrap_or(None);
 
         let remote_timestamp = match expected.into() {
