@@ -478,10 +478,7 @@ fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -
         }
     }
 
-    local_by_id
-        .values()
-        .map(|v| v.to_owned())
-        .collect::<Vec<Record>>()
+    local_by_id.into_iter().map(|(_, v)| v).collect()
 }
 
 #[cfg(test)]
