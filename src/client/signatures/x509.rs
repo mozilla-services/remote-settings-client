@@ -1,7 +1,9 @@
-use {
-    super::SignatureError,
-    x509_parser::{self, error as x509_errors, nom::Err as NomErr},
-};
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+use super::SignatureError;
+use x509_parser::{self, error as x509_errors, nom::Err as NomErr};
 
 impl From<NomErr<x509_errors::X509Error>> for SignatureError {
     fn from(err: NomErr<x509_errors::X509Error>) -> Self {

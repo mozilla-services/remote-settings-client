@@ -1,12 +1,11 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-use {
-    super::x509,
-    super::{Collection, SignatureError, Verification},
-    log::debug,
-    rc_crypto::signature,
-};
+
+use super::x509;
+use super::{Collection, SignatureError, Verification};
+use log::debug;
+use rc_crypto::signature;
 
 pub struct RcCryptoVerifier {}
 
