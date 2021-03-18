@@ -632,7 +632,7 @@ mod tests {
 
         assert_eq!(client.get().unwrap().len(), 0);
 
-        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
 
@@ -671,7 +671,7 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
 
-        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
 
@@ -724,9 +724,9 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
 
-        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.assert();
         get_changeset_mock.delete();
-        assert_eq!(1, get_latest_change_mock.times_called());
+        get_latest_change_mock.assert();
         get_latest_change_mock.delete();
     }
 
@@ -775,8 +775,8 @@ mod tests {
 
         client.sync(None).unwrap();
 
-        assert_eq!(1, get_changeset_mock.times_called());
-        assert_eq!(1, get_latest_change_mock.times_called());
+        get_changeset_mock.assert();
+        get_latest_change_mock.assert();
         get_changeset_mock.delete();
         get_latest_change_mock.delete();
     }
@@ -810,7 +810,7 @@ mod tests {
 
         client.sync(13).unwrap();
 
-        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
 
@@ -852,7 +852,7 @@ mod tests {
             }
         );
 
-        assert_eq!(1, get_latest_change_mock.times_called());
+        get_latest_change_mock.assert();
         get_latest_change_mock.delete();
     }
 
@@ -895,7 +895,7 @@ mod tests {
             }
         );
 
-        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
     #[test]
@@ -933,7 +933,7 @@ mod tests {
             }
         );
 
-        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
 
@@ -974,7 +974,7 @@ mod tests {
         let res = client.sync(15).unwrap();
         assert_eq!(res.records.len(), 3);
 
-        assert_eq!(1, get_changeset_mock_1.times_called());
+        get_changeset_mock_1.assert();
         get_changeset_mock_1.delete();
 
         let mut get_changeset_mock_2 = mock_json()
@@ -1012,7 +1012,7 @@ mod tests {
         let record_1 = &res.records[record_1_idx];
         assert_eq!(record_1["field"].as_str().unwrap(), "after");
 
-        assert_eq!(1, get_changeset_mock_2.times_called());
+        get_changeset_mock_2.assert();
         get_changeset_mock_2.delete();
     }
 
