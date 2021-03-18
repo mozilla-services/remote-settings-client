@@ -2,11 +2,6 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use {
-    crate::client::Collection, canonical_json, log::debug, serde_json::json, url::ParseError,
-    url::Url, viaduct::Error as ViaductError, viaduct::Request,
-};
-
 pub mod dummy_verifier;
 
 #[cfg(feature = "ring_verifier")]
@@ -17,6 +12,12 @@ pub mod rc_crypto_verifier;
 
 #[cfg(any(feature = "ring_verifier", feature = "rc_crypto_verifier"))]
 pub mod x509;
+
+use crate::client::Collection;
+use log::debug;
+use serde_json::json;
+use url::{ParseError, Url};
+use viaduct::{Error as ViaductError, Request};
 
 /// A trait for signature verification of collection data.
 ///
