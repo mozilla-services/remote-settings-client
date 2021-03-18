@@ -8,7 +8,6 @@ mod storage;
 
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::HashMap;
 
 use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject};
@@ -262,6 +261,10 @@ impl Client {
         ClientBuilder::new()
     }
 
+    pub fn _storage_key(&self) -> String {
+        format!("{}/{}:collection", self.bucket_name, self.collection_name)
+    }
+
     /// Return the records stored locally.
     ///
     /// # Examples
@@ -293,7 +296,7 @@ impl Client {
     /// # Errors
     /// If an error occurs while fetching or verifying records, a [`ClientError`] is returned.
     pub fn get(&mut self) -> Result<Vec<KintoObject>, ClientError> {
-        let storage_key = format!("{}/{}:collection", self.bucket_name, self.collection_name);
+        let storage_key = self._storage_key();
 
         debug!("Retrieve from storage with key={:?}", storage_key);
         let stored_bytes: Vec<u8> = self
@@ -338,7 +341,7 @@ impl Client {
     where
         T: Into<Option<u64>>,
     {
-        let storage_key = format!("{}/{}:collection", self.bucket_name, self.collection_name);
+        let storage_key = self._storage_key();
 
         debug!("Retrieve from storage with key={:?}", storage_key);
         let stored_bytes: Vec<u8> = self
@@ -387,11 +390,11 @@ impl Client {
             changeset.changes.len(),
             local_records.len()
         );
-        let merged = merge_changes(local_records.to_vec(), changeset.changes);
+        let merged = merge_changes(local_records, changeset.changes);
 
         let collection = Collection {
-            bid: self.bucket_name.to_owned(),
-            cid: self.collection_name.to_owned(),
+            bid: self.bucket_name.clone(),
+            cid: self.collection_name.clone(),
             metadata: changeset.metadata,
             records: merged,
             timestamp: changeset.timestamp,
@@ -417,7 +420,7 @@ fn merge_changes(
         .into_iter()
         .map(|record| (record["id"].to_string(), record))
         .collect();
-    for change in remote_changes.iter().rev() {
+    for change in remote_changes.into_iter().rev() {
         let id = change["id"].to_string();
         if change
             .get("deleted")
@@ -427,7 +430,7 @@ fn merge_changes(
         {
             local_by_id.remove(&id);
         } else {
-            local_by_id.insert(id, change.to_owned());
+            local_by_id.insert(id, change);
         }
     }
 
@@ -435,7 +438,6 @@ fn merge_changes(
         .values()
         .map(|v| v.to_owned())
         .collect::<Vec<KintoObject>>()
-        .to_vec()
 }
 
 #[cfg(test)]

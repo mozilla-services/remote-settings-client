@@ -1,6 +1,7 @@
 use super::{Storage, StorageError};
 use std::collections::HashMap;
 
+#[derive(Default)]
 pub struct MemoryStorage {
     mem: HashMap<String, Vec<u8>>,
 }
@@ -10,12 +11,6 @@ impl MemoryStorage {
         MemoryStorage {
             mem: HashMap::new(),
         }
-    }
-}
-
-impl Default for MemoryStorage {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

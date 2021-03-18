@@ -18,11 +18,14 @@ impl From<std::io::Error> for StorageError {
 
 impl FileStorage {
     fn _pathfor(&self, key: &str) -> PathBuf {
-        let slug = key.chars().map(|c| match c {
-            'A'..='Z' => c,
-            'a'..='z' => c,
-            _ => '-',
-        }).collect::<String>();
+        let slug = key
+            .chars()
+            .map(|c| match c {
+                'A'..='Z' => c,
+                'a'..='z' => c,
+                _ => '-',
+            })
+            .collect::<String>();
         Path::new(&self.folder).join(format!("{}.bin", slug))
     }
 }
