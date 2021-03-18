@@ -364,7 +364,7 @@ impl Client {
             let up_to_date = collection.timestamp == remote_timestamp;
             if up_to_date && self.verifier.verify(&collection).is_ok() {
                 debug!("Local data is up-to-date and valid.");
-                return Ok(collection.to_owned());
+                return Ok(stored.unwrap());
             }
         }
 
@@ -413,16 +413,16 @@ fn merge_changes(
     remote_changes: Vec<KintoObject>,
 ) -> Vec<KintoObject> {
     // Merge changes by record id and delete tombstones.
-    let mut local_by_id: HashMap<String, KintoObject> = HashMap::new();
-    for record in local_records {
-        local_by_id.insert(record["id"].to_string(), record);
-    }
+    let mut local_by_id: HashMap<String, KintoObject> = local_records
+        .into_iter()
+        .map(|record| (record["id"].to_string(), record))
+        .collect();
     for change in remote_changes.iter().rev() {
         let id = change["id"].to_string();
         if change
             .get("deleted")
-            .unwrap_or(&json!(false))
-            .as_bool()
+            .map(|v| v.as_bool())
+            .flatten()
             .unwrap_or(false)
         {
             local_by_id.remove(&id);

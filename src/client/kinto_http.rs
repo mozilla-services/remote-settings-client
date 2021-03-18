@@ -90,10 +90,7 @@ pub fn get_changeset(
         bid, cid, expected
     );
     let cache_bust = expected.unwrap_or(0);
-    let since_param = match since {
-        Some(v) => format!("&_since={}", v),
-        None => "".to_string(),
-    };
+    let since_param = since.map_or_else(String::new, |v| format!("&_since={}", v));
     let url = format!(
         "{}/buckets/{}/collections/{}/changeset?_expected={}{}",
         server, bid, cid, cache_bust, since_param

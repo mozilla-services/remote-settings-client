@@ -26,9 +26,6 @@ impl Storage for MemoryStorage {
     }
 
     fn retrieve(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
-        match self.mem.get(key) {
-            Some(v) => Ok(Some(v.to_owned())),
-            None => Ok(None),
-        }
+        Ok(self.mem.get(key).cloned())
     }
 }
