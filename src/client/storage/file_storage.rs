@@ -21,9 +21,12 @@ impl FileStorage {
         let slug = key
             .chars()
             .map(|c| match c {
-                'A'..='Z' => c,
                 'a'..='z' => c,
-                _ => '-',
+                'A'..='Z' => c,
+                '0'..='9' => c,
+                '-' => c,
+                '_' => c,
+                _ => '+',
             })
             .collect::<String>();
         Path::new(&self.folder).join(format!("{}.bin", slug))
@@ -155,16 +158,20 @@ mod tests {
     fn test_store_dangerous_key() {
         init();
 
-        cleanup("./etc-password.bin");
-
-        let mut storage = FileStorage {
-            folder: ".".to_string(),
-        };
+        let mut storage = FileStorage::default();
+        cleanup("./etc+password.bin");
+        cleanup("./a_bid+a-cid+Records.bin");
 
         storage
             .store("/etc/password", "some value".as_bytes().to_vec())
             .unwrap();
 
-        remove_file("./-etc-password.bin").unwrap(); // Fails if file is missing.
+        remove_file("./+etc+password.bin").unwrap(); // Fails if file is missing.
+
+        storage
+            .store("a_bid/a-cid:Records", "some value".as_bytes().to_vec())
+            .unwrap();
+
+        remove_file("./a_bid+a-cid+Records.bin").unwrap(); // Fails if file is missing.
     }
 }
