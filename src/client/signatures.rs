@@ -72,7 +72,7 @@ pub trait Verification {
 
     fn serialize_data(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
         let mut sorted_records = collection.records.to_vec();
-        sorted_records.sort_by_cached_key(|a| a.id().to_owned());
+        sorted_records.sort_by_cached_key(|r| r.id().to_owned());
         let serialized = canonical_json::to_string(&json!({
             "data": sorted_records,
             "last_modified": collection.timestamp.to_string()
@@ -323,7 +323,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                     })
                 }),
                 timestamp: 1594998798350,
-                records: Vec::new(),
+                records: vec![],
             },
             VALID_CERTIFICATE,
             false,
@@ -342,7 +342,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                     })
                 }),
                 timestamp: 1594998798350,
-                records: vec![Record::new(json!("record1"))],
+                records: vec![Record::new(json!({"id": "bad-record"}))],
             },
             VALID_CERTIFICATE,
             true,
@@ -361,7 +361,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                     })
                 }),
                 timestamp: 1594998798350,
-                records: Vec::new(),
+                records: vec![],
             },
             VALID_CERTIFICATE,
             true,
@@ -380,7 +380,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                     })
                 }),
                 timestamp: 1594998798350,
-                records: Vec::new(),
+                records: vec![],
             },
             INVALID_CERTIFICATE,
             true,

@@ -8,10 +8,14 @@ mod storage;
 
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject};
 pub use signatures::{SignatureError, Verification};
-pub use storage::{dummy_storage::DummyStorage, file_storage::FileStorage, Storage, StorageError};
+pub use storage::{
+    dummy_storage::DummyStorage, file_storage::FileStorage, memory_storage::MemoryStorage, Storage,
+    StorageError,
+};
 
 #[cfg(feature = "ring_verifier")]
 pub use crate::client::signatures::ring_verifier::RingVerifier;
@@ -134,6 +138,8 @@ pub struct ClientBuilder {
     collection_name: String,
     verifier: Box<dyn Verification>,
     storage: Box<dyn Storage>,
+    sync_if_empty: bool,
+    trust_local: bool,
 }
 
 impl Default for ClientBuilder {
@@ -153,6 +159,8 @@ impl ClientBuilder {
             collection_name: "".to_owned(),
             verifier: Box::new(DummyVerifier {}),
             storage: Box::new(DummyStorage {}),
+            sync_if_empty: true,
+            trust_local: true,
         }
     }
 
@@ -186,6 +194,18 @@ impl ClientBuilder {
         self
     }
 
+    /// Should [`get()`] synchronize when local DB is empty (*default*: `true`)
+    pub fn sync_if_empty(mut self, sync_if_empty: bool) -> ClientBuilder {
+        self.sync_if_empty = sync_if_empty;
+        self
+    }
+
+    /// Should [`get()`] verify signature of local DB (*default*: `true`)
+    pub fn trust_local(mut self, trust_local: bool) -> ClientBuilder {
+        self.trust_local = trust_local;
+        self
+    }
+
     /// Build Client from ClientBuilder
     pub fn build(self) -> Client {
         Client {
@@ -194,6 +214,8 @@ impl ClientBuilder {
             collection_name: self.collection_name,
             verifier: self.verifier,
             storage: self.storage,
+            sync_if_empty: self.sync_if_empty,
+            trust_local: self.trust_local,
         }
     }
 }
@@ -274,17 +296,13 @@ pub struct Client {
     // Box<dyn Trait> is necessary since implementation of [`Verification`] can be of any size unknown at compile time
     verifier: Box<dyn Verification>,
     storage: Box<dyn Storage>,
+    sync_if_empty: bool,
+    trust_local: bool,
 }
 
 impl Default for Client {
     fn default() -> Self {
-        Client {
-            server_url: DEFAULT_SERVER_URL.to_owned(),
-            bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
-            collection_name: "".to_owned(),
-            verifier: Box::new(DummyVerifier {}),
-            storage: Box::new(DummyStorage {}),
-        }
+        Client::builder().build()
     }
 }
 
@@ -294,37 +312,11 @@ impl Client {
         ClientBuilder::new()
     }
 
-    fn _fetch_records_and_verify(
-        &mut self,
-        remote_timestamp: u64,
-    ) -> Result<Collection, ClientError> {
-        let changeset_response = get_changeset(
-            &self.server_url,
-            &self.bucket_name,
-            &self.collection_name,
-            Some(remote_timestamp),
-        )?;
-
-        let records = changeset_response
-            .changes
-            .iter()
-            .map(|v| Record::new(v.to_owned()))
-            .collect();
-
-        let collection = Collection {
-            bid: self.bucket_name.to_owned(),
-            cid: self.collection_name.to_owned(),
-            metadata: changeset_response.metadata,
-            records,
-            timestamp: changeset_response.timestamp,
-        };
-
-        self.verifier.verify(&collection)?;
-
-        Ok(collection)
+    pub fn _storage_key(&self) -> String {
+        format!("{}/{}:collection", self.bucket_name, self.collection_name)
     }
 
-    /// Fetches records from the server for a given collection
+    /// Return the records stored locally.
     ///
     /// # Examples
     /// ```rust
@@ -342,52 +334,157 @@ impl Client {
     /// ```
     ///
     /// # Behaviour
-    /// Records are cached.
-    /// * If stored data is up-to-date and its signature valid, then return records;
-    /// * Otherwise fetch from server, verify signature, store result, and return records;
+    /// * Return local data by default;
+    /// * If local data is empty or malformed, and if `sync_if_empty` is `true` (*default*),
+    ///   then synchronize the local data with the server and return records, otherwise
+    ///   return an empty list.
+    ///
+    /// Note: with the [`DummyStorage`], any call to `.get()` will trigger a synchronization.
+    ///
+    /// Note: with `sync_if_empty` as `false`, if `.sync()` is never called then `.get()` will
+    /// always return an empty list.
     ///
     /// # Errors
     /// If an error occurs while fetching or verifying records, a [`ClientError`] is returned.
     pub fn get(&mut self) -> Result<Vec<Record>, ClientError> {
-        let storage_key = format!("{}/{}:collection", self.bucket_name, self.collection_name);
+        let storage_key = self._storage_key();
+
         debug!("Retrieve from storage with key={:?}", storage_key);
         let stored_bytes: Vec<u8> = self
             .storage
             .retrieve(&storage_key)
             .unwrap_or(None)
             .unwrap_or_else(Vec::new);
-
         let stored: Option<Collection> = serde_json::from_slice(&stored_bytes).unwrap_or(None);
 
-        // Note: when we implement the `sync()` method in #28,
-        // we will remove this, and `.get()` will return the current content of cache if it
-        // is not empty.
-        let remote_timestamp = get_latest_change_timestamp(
-            &self.server_url,
-            &self.bucket_name,
-            &self.collection_name,
-        )?;
+        match stored {
+            Some(collection) => {
+                if !self.trust_local {
+                    debug!("Verify signature of local data.");
+                    self.verifier.verify(&collection)?;
+                }
 
-        if let Some(collection) = stored {
+                Ok(collection.records)
+            }
+            None => {
+                if self.sync_if_empty {
+                    debug!("Synchronize data, without knowning which timestamp to expect.");
+                    let collection = self.sync(None)?;
+                    return Ok(collection.records);
+                }
+                // TODO: this empty list should be «qualified». Is it empty because never synced
+                // or empty on the server too. (see Normandy suitabilities).
+                debug!("Local data is empty or malformed.");
+                Ok(Vec::new())
+            }
+        }
+    }
+
+    /// Synchronize the local storage with the content of the server for this collection.
+    ///
+    /// # Behaviour
+    /// * If stored data is up-to-date and signature of local data valid, then return local content;
+    /// * Otherwise fetch content from server, merge with local content, verify signature, and return records;
+    ///
+    /// # Errors
+    /// If an error occurs while fetching or verifying records, a [`ClientError`] is returned.
+    pub fn sync<T>(&mut self, expected: T) -> Result<Collection, ClientError>
+    where
+        T: Into<Option<u64>>,
+    {
+        let storage_key = self._storage_key();
+
+        debug!("Retrieve from storage with key={:?}", storage_key);
+        let stored_bytes: Vec<u8> = self
+            .storage
+            .retrieve(&storage_key)
+            .unwrap_or(None)
+            .unwrap_or_else(Vec::new);
+        let stored: Option<Collection> = serde_json::from_slice(&stored_bytes).unwrap_or(None);
+
+        let remote_timestamp = match expected.into() {
+            Some(v) => v,
+            None => {
+                debug!("Obtain current timestamp.");
+                get_latest_change_timestamp(
+                    &self.server_url,
+                    &self.bucket_name,
+                    &self.collection_name,
+                )?
+            }
+        };
+
+        if let Some(ref collection) = stored {
             let up_to_date = collection.timestamp == remote_timestamp;
             if up_to_date && self.verifier.verify(&collection).is_ok() {
                 debug!("Local data is up-to-date and valid.");
-                return Ok(collection.records);
+                return Ok(stored.unwrap());
             }
         }
 
         info!("Local data is empty, outdated, or has been tampered. Fetch from server.");
-        let collection = self._fetch_records_and_verify(remote_timestamp)?;
+        let (local_records, local_timestamp) = match stored {
+            Some(c) => (c.records, Some(c.timestamp)),
+            None => (Vec::new(), None),
+        };
+
+        let changeset = get_changeset(
+            &self.server_url,
+            &self.bucket_name,
+            &self.collection_name,
+            Some(remote_timestamp),
+            local_timestamp,
+        )?;
+
+        debug!(
+            "Apply {} changes to {} local records",
+            changeset.changes.len(),
+            local_records.len()
+        );
+        let merged = merge_changes(local_records, changeset.changes);
+
+        let collection = Collection {
+            bid: self.bucket_name.clone(),
+            cid: self.collection_name.clone(),
+            metadata: changeset.metadata,
+            records: merged,
+            timestamp: changeset.timestamp,
+        };
+
+        debug!("Verify signature after merge of changes with previous local data.");
+        self.verifier.verify(&collection)?;
+
+        debug!("Store collection with key={:?}", storage_key);
         let collection_bytes: Vec<u8> = serde_json::to_string(&collection)?.into();
         self.storage.store(&storage_key, collection_bytes)?;
-        Ok(collection.records)
+
+        Ok(collection)
     }
+}
+
+fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -> Vec<Record> {
+    // Merge changes by record id and delete tombstones.
+    let mut local_by_id: HashMap<String, Record> = local_records
+        .into_iter()
+        .map(|record| (record.id().into(), record))
+        .collect();
+    for entry in remote_changes.into_iter().rev() {
+        let change = Record::new(entry);
+        let id = change.id();
+        if change.deleted() {
+            local_by_id.remove(id);
+        } else {
+            local_by_id.insert(id.into(), change);
+        }
+    }
+
+    local_by_id.into_iter().map(|(_, v)| v).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::signatures::{SignatureError, Verification};
-    use super::{Client, ClientError, Collection, Record};
+    use super::{Client, ClientError, Collection, DummyStorage, MemoryStorage, Record};
     use env_logger;
     use httpmock::Method::GET;
     use httpmock::{Mock, MockServer};
@@ -395,17 +492,11 @@ mod tests {
     use viaduct::set_backend;
     use viaduct_reqwest::ReqwestBackend;
 
-    struct VerifierWithVerificatonError {}
+    #[cfg(feature = "ring_verifier")]
+    pub use crate::client::signatures::ring_verifier::RingVerifier;
+
     struct VerifierWithNoError {}
     struct VerifierWithInvalidSignatureError {}
-
-    impl Verification for VerifierWithVerificatonError {
-        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
-            return Err(SignatureError::VerificationError {
-                name: "signature verification error".to_owned(),
-            });
-        }
-    }
 
     impl Verification for VerifierWithNoError {
         fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
@@ -416,7 +507,7 @@ mod tests {
     impl Verification for VerifierWithInvalidSignatureError {
         fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
             return Err(SignatureError::InvalidSignature {
-                name: "invalid signature error".to_owned(),
+                name: "invalid signature error from tests".to_owned(),
             });
         }
     }
@@ -426,157 +517,488 @@ mod tests {
         let _ = set_backend(&ReqwestBackend);
     }
 
-    fn test_get(
-        mock_server: &MockServer,
-        mut client: Client,
-        latest_change_response: &str,
-        records_response: &str,
-        expected_result: Result<Vec<Record>, ClientError>,
-    ) {
-        let mut get_latest_change_mock = Mock::new()
+    fn mock_json() -> Mock {
+        Mock::new()
             .expect_method(GET)
+            .return_status(200)
+            .return_header("Content-Type", "application/json")
+    }
+
+    #[test]
+    fn test_get_empty_storage() {
+        init();
+        let mock_server = MockServer::start();
+
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("url-classifier-skip-urls")
+            .sync_if_empty(false)
+            .build();
+
+        assert_eq!(client.get().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_get_bad_stored_data() {
+        init();
+        let mock_server = MockServer::start();
+
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("cfr")
+            .sync_if_empty(false)
+            .build();
+
+        client.storage.store("main/cfr", b"abc".to_vec()).unwrap();
+
+        assert_eq!(client.get().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_get_bad_stored_data_if_untrusted() {
+        init();
+        let mock_server = MockServer::start();
+
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("search-config")
+            .storage(Box::new(MemoryStorage::new()))
+            .verifier(Box::new(VerifierWithInvalidSignatureError {}))
+            .sync_if_empty(false)
+            .trust_local(false)
+            .build();
+
+        let collection = Collection {
+            bid: "main".to_owned(),
+            cid: "search-config".to_owned(),
+            metadata: json!({}),
+            records: vec![Record(json!({}))],
+            timestamp: 42,
+        };
+        let collection_bytes: Vec<u8> = serde_json::to_string(&collection).unwrap().into();
+        client
+            .storage
+            .store("main/search-config:collection", collection_bytes)
+            .unwrap();
+
+        let err = client.get().unwrap_err();
+        assert_eq!(
+            err,
+            ClientError::VerificationError {
+                name: "invalid signature error from tests".to_owned()
+            }
+        );
+    }
+
+    #[test]
+    fn test_get_with_empty_records_list() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mut get_changeset_mock = mock_json()
+            .expect_path("/buckets/main/collections/regions/changeset")
+            .expect_query_param("_expected", "42")
+            .return_body(
+                r#"{
+                    "metadata": {},
+                    "changes": [],
+                    "timestamp": 0
+                }"#,
+            )
+            .create_on(&mock_server);
+
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("regions")
+            .storage(Box::new(MemoryStorage::new()))
+            .verifier(Box::new(VerifierWithNoError {}))
+            .build();
+
+        client.sync(42).unwrap();
+
+        assert_eq!(client.get().unwrap().len(), 0);
+
+        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.delete();
+    }
+
+    #[test]
+    fn test_get_return_previously_synced_records() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mut get_changeset_mock = mock_json()
+            .expect_path("/buckets/main/collections/blocklist/changeset")
+            .expect_query_param("_expected", "123")
+            .return_body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 123,
+                        "foo": "bar"
+                    }],
+                    "timestamp": 123
+                }"#,
+            )
+            .create_on(&mock_server);
+
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("blocklist")
+            .storage(Box::new(MemoryStorage::new()))
+            .verifier(Box::new(VerifierWithNoError {}))
+            .build();
+
+        client.sync(123).unwrap();
+
+        let records = client.get().unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
+
+        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.delete();
+    }
+
+    #[test]
+    fn test_get_works_with_dummy_storage() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mut get_latest_change_mock = mock_json()
             .expect_path("/buckets/monitor/collections/changes/changeset")
-            .return_status(200)
-            .return_header("Content-Type", "application/json")
-            .return_body(latest_change_response)
+            .expect_query_param("_expected", "0")
+            .return_body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "not-read",
+                        "last_modified": 555,
+                        "bucket": "main",
+                        "collection": "top-sites"
+                    }],
+                    "timestamp": 555
+                }"#,
+            )
             .create_on(&mock_server);
 
-        let mut get_changeset_mock = Mock::new()
-            .expect_method(GET)
-            .expect_path("/buckets/main/collections/url-classifier-skip-urls/changeset")
-            .expect_query_param("_expected", "9173")
-            .return_status(200)
-            .return_header("Content-Type", "application/json")
-            .return_body(records_response)
+        let mut get_changeset_mock = mock_json()
+            .expect_path("/buckets/main/collections/top-sites/changeset")
+            .expect_query_param("_expected", "555")
+            .return_body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 555,
+                        "foo": "bar"
+                    }],
+                    "timestamp": 555
+                }"#,
+            )
             .create_on(&mock_server);
 
-        let actual_result = client.get();
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("top-sites")
+            .storage(Box::new(DummyStorage {}))
+            .verifier(Box::new(VerifierWithNoError {}))
+            .build();
+
+        let records = client.get().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
+
+        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.delete();
         assert_eq!(1, get_latest_change_mock.times_called());
-        assert_eq!(actual_result, expected_result);
+        get_latest_change_mock.delete();
+    }
 
+    #[test]
+    fn test_sync_pulls_current_timestamp_from_changes_endpoint_if_none() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mut get_latest_change_mock = mock_json()
+            .expect_path("/buckets/monitor/collections/changes/changeset")
+            .return_body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "not-read",
+                        "last_modified": 123,
+                        "bucket": "main",
+                        "collection": "fxmonitor"
+                    }],
+                    "timestamp": 42
+                }"#,
+            )
+            .create_on(&mock_server);
+
+        let mut get_changeset_mock = mock_json()
+            .expect_path("/buckets/main/collections/fxmonitor/changeset")
+            .expect_query_param("_expected", "123")
+            .return_body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 555,
+                        "foo": "bar"
+                    }],
+                    "timestamp": 555
+                }"#,
+            )
+            .create_on(&mock_server);
+
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("fxmonitor")
+            .verifier(Box::new(VerifierWithNoError {}))
+            .build();
+
+        client.sync(None).unwrap();
+
+        assert_eq!(1, get_changeset_mock.times_called());
+        assert_eq!(1, get_latest_change_mock.times_called());
         get_changeset_mock.delete();
         get_latest_change_mock.delete();
     }
 
     #[test]
-    fn test_unknown_collection() {
+    fn test_sync_uses_specified_expected_parameter() {
         init();
 
         let mock_server = MockServer::start();
-        let mock_server_address = mock_server.url("");
+        let mut get_changeset_mock = mock_json()
+            .expect_path("/buckets/main/collections/pioneers/changeset")
+            .expect_query_param("_expected", "13")
+            .return_body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 13,
+                        "foo": "bar"
+                    }],
+                    "timestamp": 13
+                }"#,
+            )
+            .create_on(&mock_server);
 
-        test_get(
-            &mock_server,
-            Client::builder()
-                .server_url(&mock_server_address)
-                .collection_name("url-classifier-skip-urls")
-                .verifier(Box::new(VerifierWithNoError {}))
-                .build(),
-            r#"{
-                "metadata": {},
-                "changes": [],
-                "timestamp": 0
-            }"#,
-            r#"{
-                "metadata": {
-                    "data": "test"
-                },
-                "changes": [],
-                "timestamp": 0
-            }"#,
-            Err(ClientError::Error {
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("pioneers")
+            .verifier(Box::new(VerifierWithNoError {}))
+            .build();
+
+        client.sync(13).unwrap();
+
+        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.delete();
+    }
+
+    #[test]
+    fn test_sync_fails_with_unknown_collection() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mut get_latest_change_mock = mock_json()
+            .expect_path("/buckets/monitor/collections/changes/changeset")
+            .return_body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "not-read",
+                        "last_modified": 123,
+                        "bucket": "main",
+                        "collection": "fxmonitor"
+                    }],
+                    "timestamp": 42
+                }"#,
+            )
+            .create_on(&mock_server);
+
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("url-classifier-skip-urls")
+            .build();
+
+        let err = client.sync(None).unwrap_err();
+        assert_eq!(
+            err,
+            ClientError::Error {
                 name: format!(
                     "Unknown collection {}/{}",
                     "main", "url-classifier-skip-urls"
                 ),
-            }),
+            }
         );
+
+        assert_eq!(1, get_latest_change_mock.times_called());
+        get_latest_change_mock.delete();
     }
 
     #[test]
-    fn test_get_verification() {
+    #[cfg(feature = "ring_verifier")]
+    fn test_sync_uses_x5u_from_metadata_to_verify_signatures() {
         init();
 
         let mock_server = MockServer::start();
+        let mut get_changeset_mock = mock_json()
+            .expect_path("/buckets/main/collections/onecrl/changeset")
+            .expect_query_param("_expected", "42")
+            .return_body(
+                r#"{
+                    "metadata": {
+                        "missing": "x5u"
+                    },
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 13,
+                        "foo": "bar"
+                    }],
+                    "timestamp": 13
+                }"#,
+            )
+            .create_on(&mock_server);
 
-        let mock_server_address = mock_server.url("");
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("onecrl")
+            .verifier(Box::new(RingVerifier {}))
+            .build();
 
-        let valid_latest_change_response = &format!(
-            "{}",
-            r#"{
-                "metadata": {},
-                "changes": [
-                    {
-                        "id": "123",
-                        "last_modified": 9173,
-                        "bucket":"main",
-                        "collection":"url-classifier-skip-urls",
-                        "host":"localhost:5000"
-                    }
-                ],
-                "timestamp": 0
-            }"#
+        let err = client.sync(42).unwrap_err();
+
+        assert_eq!(
+            err,
+            ClientError::VerificationError {
+                name: "x5u field not present in signature".to_owned()
+            }
         );
 
-        test_get(
-            &mock_server,
-            Client::builder()
-                .server_url(&mock_server_address)
-                .collection_name("url-classifier-skip-urls")
-                .verifier(Box::new(VerifierWithVerificatonError {}))
-                .build(),
-            valid_latest_change_response,
-            r#"{
-                "metadata": {},
-                "changes": [],
-                "timestamp": 0
-            }"#,
-            Err(ClientError::VerificationError {
-                name: "signature verification error".to_owned(),
-            }),
+        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.delete();
+    }
+    #[test]
+    fn test_sync_wraps_signature_errors() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mut get_changeset_mock = mock_json()
+            .expect_path("/buckets/main/collections/password-recipes/changeset")
+            .expect_query_param("_expected", "42")
+            .return_body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 13,
+                        "foo": "bar"
+                    }],
+                    "timestamp": 13
+                }"#,
+            )
+            .create_on(&mock_server);
+
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("password-recipes")
+            .verifier(Box::new(VerifierWithInvalidSignatureError {}))
+            .build();
+
+        let err = client.sync(42).unwrap_err();
+        assert_eq!(
+            err,
+            ClientError::VerificationError {
+                name: "invalid signature error from tests".to_owned()
+            }
         );
 
-        test_get(
-            &mock_server,
-            Client::builder()
-                .server_url(&mock_server_address)
-                .collection_name("url-classifier-skip-urls")
-                .verifier(Box::new(VerifierWithNoError {}))
-                .build(),
-            valid_latest_change_response,
-            r#"{
-                "metadata": {
-                    "data": "test"
-                },
-                "changes": [{
-                    "id": 1,
-                    "last_modified": 100
-                }],
-                "timestamp": 0
-            }"#,
-            Ok(vec![Record(json!({
-                "id": 1,
-                "last_modified": 100
-            }))]),
-        );
+        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.delete();
+    }
 
-        test_get(
-            &mock_server,
-            Client::builder()
-                .server_url(&mock_server_address)
-                .collection_name("url-classifier-skip-urls")
-                .verifier(Box::new(VerifierWithInvalidSignatureError {}))
-                .build(),
-            valid_latest_change_response,
-            r#"{
-                "metadata": {},
-                "changes": [],
-                "timestamp": 0
-            }"#,
-            Err(ClientError::VerificationError {
-                name: "invalid signature error".to_owned(),
-            }),
-        );
+    #[test]
+    fn test_sync_returns_collection_with_merged_changes() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mut get_changeset_mock_1 = mock_json()
+            .expect_path("/buckets/main/collections/onecrl/changeset")
+            .expect_query_param("_expected", "15")
+            .return_body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 15
+                    }, {
+                        "id": "record-2",
+                        "last_modified": 14,
+                        "field": "before"
+                    }, {
+                        "id": "record-3",
+                        "last_modified": 13
+                    }],
+                    "timestamp": 15
+                }"#,
+            )
+            .create_on(&mock_server);
+
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("onecrl")
+            .storage(Box::new(MemoryStorage::new()))
+            .verifier(Box::new(VerifierWithNoError {}))
+            .build();
+
+        let res = client.sync(15).unwrap();
+        assert_eq!(res.records.len(), 3);
+
+        assert_eq!(1, get_changeset_mock_1.times_called());
+        get_changeset_mock_1.delete();
+
+        let mut get_changeset_mock_2 = mock_json()
+            .expect_path("/buckets/main/collections/onecrl/changeset")
+            .expect_query_param("_since", "15")
+            .expect_query_param("_expected", "42")
+            .return_body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 42,
+                        "field": "after"
+                    }, {
+                        "id": "record-4",
+                        "last_modified": 30
+                    }, {
+                        "id": "record-2",
+                        "last_modified": 20,
+                        "delete": true
+                    }],
+                    "timestamp": 42
+                }"#,
+            )
+            .create_on(&mock_server);
+
+        let res = client.sync(42).unwrap();
+        assert_eq!(res.records.len(), 4);
+
+        let record_1_idx = res
+            .records
+            .iter()
+            .position(|r| r.id() == "record-1")
+            .unwrap();
+        let record_1 = &res.records[record_1_idx];
+        assert_eq!(record_1["field"].as_str().unwrap(), "after");
+
+        assert_eq!(1, get_changeset_mock_2.times_called());
+        get_changeset_mock_2.delete();
     }
 
     #[test]

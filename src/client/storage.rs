@@ -1,5 +1,6 @@
 pub mod dummy_storage;
 pub mod file_storage;
+pub mod memory_storage;
 
 /// A trait for giving a type a custom storage implementation
 ///

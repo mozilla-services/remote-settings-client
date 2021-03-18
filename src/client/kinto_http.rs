@@ -55,7 +55,7 @@ impl From<ParseError> for KintoError {
 }
 
 pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result<u64, KintoError> {
-    let response = get_changeset(&server, "monitor", "changes", None)?;
+    let response = get_changeset(&server, "monitor", "changes", None, None)?;
     let change = response
         .changes
         .iter()
@@ -83,15 +83,17 @@ pub fn get_changeset(
     bid: &str,
     cid: &str,
     expected: Option<u64>,
+    since: Option<u64>,
 ) -> Result<ChangesetResponse, KintoError> {
     debug!(
         "The expected timestamp for bucket={}, collection={} is {:?}",
         bid, cid, expected
     );
     let cache_bust = expected.unwrap_or(0);
+    let since_param = since.map_or_else(String::new, |v| format!("&_since={}", v));
     let url = format!(
-        "{}/buckets/{}/collections/{}/changeset?_expected={}",
-        server, bid, cid, cache_bust
+        "{}/buckets/{}/collections/{}/changeset?_expected={}{}",
+        server, bid, cid, cache_bust, since_param
     );
     info!("Fetch {}...", url);
 
