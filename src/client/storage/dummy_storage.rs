@@ -11,7 +11,9 @@ impl Storage for DummyStorage {
         Ok(())
     }
 
-    fn retrieve(&self, _key: &str) -> Result<Option<Vec<u8>>, StorageError> {
-        Ok(None)
+    fn retrieve(&self, key: &str) -> Result<Vec<u8>, StorageError> {
+        Err(StorageError::KeyNotFound {
+            key: key.to_string(),
+        })
     }
 }

@@ -11,12 +11,24 @@ use {
 };
 
 pub struct FileStorage {
-    pub folder: String,
+    pub folder: PathBuf,
+    pub extension: String,
+}
+
+impl Default for FileStorage {
+    fn default() -> Self {
+        Self {
+            folder: PathBuf::from("."),
+            extension: "bin".to_string(),
+        }
+    }
 }
 
 impl From<std::io::Error> for StorageError {
     fn from(err: std::io::Error) -> Self {
-        err.into()
+        StorageError::WriteError {
+            name: err.to_string(),
+        }
     }
 }
 
@@ -25,12 +37,19 @@ impl FileStorage {
         let slug = key
             .chars()
             .map(|c| match c {
-                'A'..='Z' => c,
                 'a'..='z' => c,
-                _ => '-',
+                'A'..='Z' => c,
+                '0'..='9' => c,
+                '-' => c,
+                '_' => c,
+                _ => '+',
             })
             .collect::<String>();
-        Path::new(&self.folder).join(format!("{}.bin", slug))
+
+        let mut p = Path::new(&self.folder).join(slug);
+        p.set_extension(&self.extension);
+
+        p
     }
 }
 
@@ -45,7 +64,7 @@ impl Storage for FileStorage {
         {
             Err(err) => {
                 error!("Couldn't open or create {:?}: {}", path, err);
-                Err(StorageError::Error {
+                Err(StorageError::WriteError {
                     name: err.to_string(),
                 })
             }
@@ -58,13 +77,15 @@ impl Storage for FileStorage {
         }
     }
 
-    fn retrieve(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
+    fn retrieve(&self, key: &str) -> Result<Vec<u8>, StorageError> {
         let path = self._pathfor(&key);
         let mut file = match OpenOptions::new().read(true).write(false).open(&path) {
             Ok(file) => file,
             Err(err) => {
                 debug!("Couldn't open {:?}: {}", path, err);
-                return Ok(None);
+                return Err(StorageError::KeyNotFound {
+                    key: key.to_string(),
+                });
             }
         };
 
@@ -72,12 +93,14 @@ impl Storage for FileStorage {
         match file.read_to_string(&mut s) {
             Err(err) => {
                 error!("Couldn't read {:?}: {}", path, err);
-                return Ok(None);
+                return Err(StorageError::ReadError {
+                    name: err.to_string(),
+                });
             }
             Ok(size) => debug!("Read {} ({} bytes) from {:?}", key, size, path),
         };
 
-        Ok(Some(s.into_bytes()))
+        Ok(s.into_bytes())
     }
 }
 
@@ -102,17 +125,14 @@ mod tests {
     fn test_store_key_value_with_no_file_present() {
         init();
 
-        let mut storage = FileStorage {
-            folder: ".".to_string(),
-        };
+        let mut storage = FileStorage::default();
         cleanup("./store-key.bin");
 
         storage
             .store("store-key", "some value".as_bytes().to_vec())
             .unwrap();
 
-        let retrieve_result = storage.retrieve("store-key").unwrap();
-        let value_bytes = retrieve_result.unwrap();
+        let value_bytes = storage.retrieve("store-key").unwrap();
         let value_str = String::from_utf8(value_bytes.to_vec()).unwrap();
 
         assert_eq!(value_str, "some value");
@@ -123,9 +143,7 @@ mod tests {
     fn test_store_overwrite_file() {
         init();
 
-        let mut storage = FileStorage {
-            folder: ".".to_string(),
-        };
+        let mut storage = FileStorage::default();
 
         storage
             .store("overwrite-key", "some value".as_bytes().to_vec())
@@ -135,8 +153,7 @@ mod tests {
             .store("overwrite-key", "new value".as_bytes().to_vec())
             .unwrap();
 
-        let retrieve_result = storage.retrieve("overwrite-key").unwrap();
-        let value_bytes = retrieve_result.unwrap();
+        let value_bytes = storage.retrieve("overwrite-key").unwrap();
         let value_str = String::from_utf8(value_bytes.to_vec()).unwrap();
 
         assert_eq!(value_str, "new value");
@@ -147,28 +164,30 @@ mod tests {
     fn test_retrieve_cannot_find_file() {
         init();
 
-        let storage = FileStorage {
-            folder: ".".to_string(),
-        };
+        let storage = FileStorage::default();
         cleanup("./unknown-key.bin");
 
-        assert!(storage.retrieve("unknown-key").unwrap().is_none());
+        assert!(storage.retrieve("unknown-key").is_err());
     }
 
     #[test]
     fn test_store_dangerous_key() {
         init();
 
-        cleanup("./etc-password.bin");
-
-        let mut storage = FileStorage {
-            folder: ".".to_string(),
-        };
+        let mut storage = FileStorage::default();
+        cleanup("./etc+password.bin");
+        cleanup("./a_bid+a-cid+Records.bin");
 
         storage
             .store("/etc/password", "some value".as_bytes().to_vec())
             .unwrap();
 
-        remove_file("./-etc-password.bin").unwrap(); // Fails if file is missing.
+        remove_file("./+etc+password.bin").unwrap(); // Fails if file is missing.
+
+        storage
+            .store("a_bid/a-cid:Records", "some value".as_bytes().to_vec())
+            .unwrap();
+
+        remove_file("./a_bid+a-cid+Records.bin").unwrap(); // Fails if file is missing.
     }
 }

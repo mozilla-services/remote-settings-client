@@ -24,7 +24,12 @@ impl Storage for MemoryStorage {
         Ok(())
     }
 
-    fn retrieve(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
-        Ok(self.mem.get(key).cloned())
+    fn retrieve(&self, key: &str) -> Result<Vec<u8>, StorageError> {
+        match self.mem.get(key) {
+            Some(v) => Ok(v.clone()),
+            None => Err(StorageError::KeyNotFound {
+                key: key.to_string(),
+            }),
+        }
     }
 }
