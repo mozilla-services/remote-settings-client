@@ -130,10 +130,10 @@ pub fn get_changeset(
         }
 
         if resp.is_server_error() {
-            let retry_after = match resp.headers.get("retry-after") {
-                Some(val) => val.parse::<u64>().ok(),
-                None => None,
-            };
+            let retry_after = resp
+                .headers
+                .get("retry-after")
+                .map_or_else(|| None, |v| v.parse::<u64>().ok());
 
             return Err(KintoError::ServerError {
                 name: format!("{} from {}", error, resp.url.path()),
@@ -143,10 +143,10 @@ pub fn get_changeset(
         }
     }
 
-    let size: i64 = match resp.headers.get("content-length") {
-        Some(val) => val.parse().unwrap_or(-1),
-        None => -1,
-    };
+    let size: i64 = resp
+        .headers
+        .get("content-length")
+        .map_or_else(|| -1, |v| v.parse().unwrap_or(-1));
 
     debug!("Download {:?} bytes...", size);
     resp.json().map_err(|err| KintoError::ServerError {
