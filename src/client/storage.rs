@@ -16,8 +16,8 @@ pub mod memory_storage;
 ///         Ok(())
 ///     }
 ///
-///     fn retrieve(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
-///         Ok(Some(Vec::new()))
+///     fn retrieve(&self, key: &str) -> Result<Vec<u8>, StorageError> {
+///         Ok(Vec::new())
 ///     }
 /// }
 /// ```
@@ -32,11 +32,12 @@ pub trait Storage {
     ///
     /// # Errors
     /// If the key cannot be found, ```StorageError::ReadError``` is returned
-    fn retrieve(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError>;
+    fn retrieve(&self, key: &str) -> Result<Vec<u8>, StorageError>;
 }
 
 #[derive(Debug, PartialEq)]
 pub enum StorageError {
     WriteError { name: String },
     ReadError { name: String },
+    KeyNotFound { key: String },
 }

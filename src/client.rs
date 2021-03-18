@@ -49,6 +49,9 @@ impl From<StorageError> for ClientError {
         match err {
             StorageError::ReadError { name } => ClientError::StorageError { name },
             StorageError::WriteError { name } => ClientError::StorageError { name },
+            StorageError::KeyNotFound { key } => ClientError::StorageError {
+                name: format!("{} not found", key),
+            },
         }
     }
 }
@@ -345,8 +348,8 @@ impl Client {
         let stored_bytes: Vec<u8> = self
             .storage
             .retrieve(&storage_key)
-            .unwrap_or(None)
-            .unwrap_or_else(Vec::new);
+            // TODO: surface errors. See #79
+            .unwrap_or(Vec::new());
         let stored: Option<Collection> = serde_json::from_slice(&stored_bytes).unwrap_or(None);
 
         match stored {
@@ -387,11 +390,7 @@ impl Client {
         let storage_key = self._storage_key();
 
         debug!("Retrieve from storage with key={:?}", storage_key);
-        let stored_bytes: Vec<u8> = self
-            .storage
-            .retrieve(&storage_key)
-            .unwrap_or(None)
-            .unwrap_or_else(Vec::new);
+        let stored_bytes: Vec<u8> = self.storage.retrieve(&storage_key).unwrap_or(Vec::new());
         let stored: Option<Collection> = serde_json::from_slice(&stored_bytes).unwrap_or(None);
 
         let remote_timestamp = match expected.into() {
@@ -447,11 +446,11 @@ impl Client {
         self.verifier.verify(&collection)?;
 
         debug!("Store collection with key={:?}", storage_key);
-        let collection_bytes: Vec<u8> = serde_json::to_string(&collection).map_err(|err| {
-            StorageError::WriteError {
-                name: format!("Cannot serialize collection: {}", err)
-            }
-        })?.into();
+        let collection_bytes: Vec<u8> = serde_json::to_string(&collection)
+            .map_err(|err| StorageError::WriteError {
+                name: format!("Cannot serialize collection: {}", err),
+            })?
+            .into();
         self.storage.store(&storage_key, collection_bytes)?;
 
         Ok(collection)

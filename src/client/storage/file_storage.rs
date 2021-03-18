@@ -73,13 +73,15 @@ impl Storage for FileStorage {
         }
     }
 
-    fn retrieve(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
+    fn retrieve(&self, key: &str) -> Result<Vec<u8>, StorageError> {
         let path = self._pathfor(&key);
         let mut file = match OpenOptions::new().read(true).write(false).open(&path) {
             Ok(file) => file,
             Err(err) => {
                 debug!("Couldn't open {:?}: {}", path, err);
-                return Ok(None);
+                return Err(StorageError::KeyNotFound {
+                    key: key.to_string(),
+                });
             }
         };
 
@@ -87,12 +89,14 @@ impl Storage for FileStorage {
         match file.read_to_string(&mut s) {
             Err(err) => {
                 error!("Couldn't read {:?}: {}", path, err);
-                return Ok(None);
+                return Err(StorageError::ReadError {
+                    name: err.to_string(),
+                });
             }
             Ok(size) => debug!("Read {} ({} bytes) from {:?}", key, size, path),
         };
 
-        Ok(Some(s.into_bytes()))
+        Ok(s.into_bytes())
     }
 }
 
@@ -124,8 +128,7 @@ mod tests {
             .store("store-key", "some value".as_bytes().to_vec())
             .unwrap();
 
-        let retrieve_result = storage.retrieve("store-key").unwrap();
-        let value_bytes = retrieve_result.unwrap();
+        let value_bytes = storage.retrieve("store-key").unwrap();
         let value_str = String::from_utf8(value_bytes.to_vec()).unwrap();
 
         assert_eq!(value_str, "some value");
@@ -146,8 +149,7 @@ mod tests {
             .store("overwrite-key", "new value".as_bytes().to_vec())
             .unwrap();
 
-        let retrieve_result = storage.retrieve("overwrite-key").unwrap();
-        let value_bytes = retrieve_result.unwrap();
+        let value_bytes = storage.retrieve("overwrite-key").unwrap();
         let value_str = String::from_utf8(value_bytes.to_vec()).unwrap();
 
         assert_eq!(value_str, "new value");
@@ -161,7 +163,7 @@ mod tests {
         let storage = FileStorage::default();
         cleanup("./unknown-key.bin");
 
-        assert!(storage.retrieve("unknown-key").unwrap().is_none());
+        assert!(storage.retrieve("unknown-key").is_err());
     }
 
     #[test]
