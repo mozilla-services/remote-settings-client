@@ -18,7 +18,7 @@ viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev
 
 [dependencies]
 base64 = "0.13.0"
-canonical_json = "0.3.0"
+canonical_json = { git = "https://github.com/mozilla-services/canonicaljson-rs", rev = "1df71dc"}
 log = "0.4.0"
 url = "2.1"
 # specifying viaduct dependency from git repo since viaduct is not published yet to crates.io
