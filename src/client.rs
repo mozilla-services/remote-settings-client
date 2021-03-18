@@ -271,10 +271,10 @@ impl ClientBuilder {
 ///
 /// With the `ring_verifier` feature, a signature verifier leveraging the [`ring` crate](https://crates.io/crates/ring).
 /// ```rust
+/// # #[cfg(feature = "ring_verifier")] {
 /// # use remote_settings_client::Client;
 /// use remote_settings_client::RingVerifier;
 ///
-/// # fn main() {
 /// let client = Client::builder()
 ///   .collection_name("cid")
 ///   .verifier(Box::new(RingVerifier {}))
@@ -286,10 +286,10 @@ impl ClientBuilder {
 ///
 /// With the `rc_crypto` feature, a signature verifier leveraging the [`rc_crypto` crate](https://github.com/mozilla/application-services/tree/v73.0.2/components/support/rc_crypto).
 /// ```rust
+/// # #[cfg(feature = "rc_crypto_verifier")] {
 /// # use remote_settings_client::Client;
 /// use remote_settings_client::RcCryptoVerifier;
 ///
-/// # fn main() {
 /// let client = Client::builder()
 ///   .collection_name("cid")
 ///   .verifier(Box::new(RcCryptoVerifier {}))
