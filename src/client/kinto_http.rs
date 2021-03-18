@@ -43,6 +43,13 @@ pub enum KintoError {
         retry_after: Option<u64>,
         response: Option<ErrorResponse>,
     },
+    ContentError {
+        name: String,
+    },
+    UnknownCollection {
+        bucket: String,
+        collection: String,
+    },
 }
 
 impl std::fmt::Display for ErrorResponse {
@@ -79,17 +86,15 @@ pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result
         .changes
         .iter()
         .find(|&x| x["bucket"] == bid && x["collection"] == cid)
-        .ok_or(KintoError::ClientError {
-            name: format!("Unknown collection {}/{}", bid, cid),
-            response: None,
+        .ok_or(KintoError::UnknownCollection {
+            bucket: bid.to_string(),
+            collection: cid.to_string(),
         })?;
 
     let last_modified = change["last_modified"]
         .as_u64()
-        .ok_or(KintoError::ServerError {
+        .ok_or(KintoError::ContentError {
             name: format!("Bad server timestamp: {}", change["last_modified"]),
-            retry_after: None,
-            response: None,
         })?;
 
     debug!("{}/{}: last_modified={}", bid, cid, last_modified);
@@ -149,10 +154,8 @@ pub fn get_changeset(
         .map_or_else(|| -1, |v| v.parse().unwrap_or(-1));
 
     debug!("Download {:?} bytes...", size);
-    resp.json().map_err(|err| KintoError::ServerError {
+    resp.json().map_err(|err| KintoError::ContentError {
         name: format!("JSON content error: {}", err),
-        retry_after: None,
-        response: None,
     })
 }
 
@@ -243,7 +246,7 @@ mod tests {
                 .unwrap_err();
 
         match err {
-            KintoError::ServerError { name, .. } => {
+            KintoError::ContentError { name, .. } => {
                 assert!(name.contains("JSON content error: control character"))
             }
             e => assert!(false, format!("Unexpected error type: {:?}", e)),
@@ -285,7 +288,7 @@ mod tests {
                 .unwrap_err();
 
         match err {
-            KintoError::ServerError { name, .. } => {
+            KintoError::ContentError { name, .. } => {
                 assert_eq!(name, "Bad server timestamp: \"foo\"")
             }
             e => assert!(false, format!("Unexpected error type: {:?}", e)),

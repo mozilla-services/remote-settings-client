@@ -47,8 +47,18 @@ pub enum ClientError {
 impl From<KintoError> for ClientError {
     fn from(err: KintoError) -> Self {
         match err {
-            KintoError::ServerError { name, response, .. } => ClientError::APIError { name, response },
+            KintoError::ServerError { name, response, .. } => {
+                ClientError::APIError { name, response }
+            }
             KintoError::ClientError { name, response } => ClientError::APIError { name, response },
+            KintoError::ContentError { name } => ClientError::APIError {
+                name,
+                response: None,
+            },
+            KintoError::UnknownCollection { bucket, collection } => ClientError::APIError {
+                name: format!("Unknown collection {}/{}", bucket, collection),
+                response: None,
+            },
         }
     }
 }
