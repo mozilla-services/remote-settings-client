@@ -84,12 +84,9 @@ pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result
             collection: cid.to_string(),
         })?;
 
-    let last_modified =
-        change["last_modified"]
-            .as_u64()
-            .ok_or_else(|| KintoError::InvalidChangesetTimestamp(
-                change["last_modified"].to_string(),
-            ))?;
+    let last_modified = change["last_modified"].as_u64().ok_or_else(|| {
+        KintoError::InvalidChangesetTimestamp(change["last_modified"].to_string())
+    })?;
 
     debug!("{}/{}: last_modified={}", bid, cid, last_modified);
 
@@ -117,19 +114,12 @@ pub fn get_changeset(
         // See https://docs.kinto-storage.org/en/stable/api/1.x/errors.html#error-responses
         let info: ErrorResponse = match response.json() {
             Ok(v) => v,
-            Err(_) => {
-                return Err(KintoError::UnexpectedResponse {
-                    response,
-                })
-            }
+            Err(_) => return Err(KintoError::UnexpectedResponse { response }),
         };
 
         // Error due to the client. The request must be modified.
         if response.is_client_error() {
-            return Err(KintoError::ClientRequestError {
-                response,
-                info,
-            });
+            return Err(KintoError::ClientRequestError { response, info });
         }
 
         if response.is_server_error() {
@@ -189,7 +179,7 @@ mod tests {
                         }
                     ],
                     "timestamp": 42
-                }"#
+                }"#,
             );
         });
 
@@ -226,7 +216,7 @@ mod tests {
             then.body(
                 r#"{
                     "met :
-                }"#
+                }"#,
             );
         });
 

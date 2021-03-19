@@ -303,14 +303,14 @@ impl Client {
     ///
     /// # Behaviour
     /// * Return local data by default;
-    /// * If local data is empty or malformed, and if `sync_if_empty` is `true` (*default*),
+    /// * If local data is empty and if `sync_if_empty` is `true` (*default*),
     ///   then synchronize the local data with the server and return records, otherwise
-    ///   return an empty list.
+    ///   return an error.
     ///
     /// Note: with the [`DummyStorage`], any call to `.get()` will trigger a synchronization.
     ///
     /// Note: with `sync_if_empty` as `false`, if `.sync()` is never called then `.get()` will
-    /// always return an empty list.
+    /// always return an error.
     ///
     /// # Errors
     /// If an error occurs while fetching or verifying records, a [`ClientError`] is returned.
@@ -318,32 +318,33 @@ impl Client {
         let storage_key = self._storage_key();
 
         debug!("Retrieve from storage with key={:?}", storage_key);
-        let stored_bytes: Vec<u8> = self
-            .storage
-            .retrieve(&storage_key)
-            // TODO: surface errors. See #79
-            .unwrap_or_default();
-        let stored: Option<Collection> = serde_json::from_slice(&stored_bytes).unwrap_or(None);
+        let read_result = self.storage.retrieve(&storage_key);
 
-        match stored {
-            Some(collection) => {
+        match read_result {
+            Ok(stored_bytes) => {
+                // Deserialize content of storage and surface error if fails.
+                let stored: Collection = serde_json::from_slice(&stored_bytes).map_err(|err| {
+                    StorageError::ReadError(format!("cannot deserialize collection: {}", err))
+                })?;
+                // Verify signature of stored data (*optional*)
                 if !self.trust_local {
                     debug!("Verify signature of local data.");
-                    self.verifier.verify(&collection)?;
+                    self.verifier.verify(&stored)?;
                 }
 
-                Ok(collection.records)
+                Ok(stored.records)
             }
-            None => {
+            Err(err) => {
+                // If storage is empty, go on with sync() (*optional*)
                 if self.sync_if_empty {
-                    debug!("Synchronize data, without knowning which timestamp to expect.");
-                    let collection = self.sync(None)?;
-                    return Ok(collection.records);
+                    if let StorageError::KeyNotFound { .. } = err {
+                        debug!("Synchronize data, without knowning which timestamp to expect.");
+                        let collection = self.sync(None)?;
+                        return Ok(collection.records);
+                    }
                 }
-                // TODO: this empty list should be «qualified». Is it empty because never synced
-                // or empty on the server too. (see Normandy suitabilities).
-                debug!("Local data is empty or malformed.");
-                Ok(Vec::new())
+                // Otherwise, surface the error.
+                Err(err.into())
             }
         }
     }
@@ -421,7 +422,7 @@ impl Client {
         debug!("Store collection with key={:?}", storage_key);
         let collection_bytes: Vec<u8> = serde_json::to_string(&collection)
             .map_err(|err| {
-                StorageError::WriteError(format!("Cannot serialize collection: {}", err))
+                StorageError::WriteError(format!("cannot serialize collection: {}", err))
             })?
             .into();
         self.storage.store(&storage_key, collection_bytes)?;
@@ -452,7 +453,7 @@ fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -
 #[cfg(test)]
 mod tests {
     use super::signatures::{SignatureError, Verification};
-    use super::{Client, Collection, MemoryStorage, Record};
+    use super::{Client, Collection, DummyStorage, DummyVerifier, MemoryStorage, Record};
     use env_logger;
     use httpmock::MockServer;
     use serde_json::json;
@@ -485,10 +486,15 @@ mod tests {
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
             .collection_name("url-classifier-skip-urls")
+            // Explicitly disable sync if empty.
             .sync_if_empty(false)
             .build();
 
-        assert_eq!(client.get().unwrap().len(), 0);
+        let err = client.get().unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "storage I/O error: key could not be found: main/url-classifier-skip-urls:collection"
+        );
     }
 
     #[test]
@@ -499,12 +505,17 @@ mod tests {
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
             .collection_name("cfr")
+            .storage(Box::new(MemoryStorage::new()))
             .sync_if_empty(false)
             .build();
 
-        client.storage.store("main/cfr", b"abc".to_vec()).unwrap();
+        client
+            .storage
+            .store("main/cfr:collection", b"abc".to_vec())
+            .unwrap();
 
-        assert_eq!(client.get().unwrap().len(), 0);
+        let err = client.get().unwrap_err();
+        assert_eq!(err.to_string(), "storage I/O error: cannot read from storage: cannot deserialize collection: expected value at line 1 column 1");
     }
 
     #[test]
