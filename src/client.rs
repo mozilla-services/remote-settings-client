@@ -442,7 +442,7 @@ impl Client {
             &self.server_url,
             &self.bucket_name,
             &self.collection_name,
-            Some(remote_timestamp),
+            remote_timestamp,
             local_timestamp,
         )?;
 
