@@ -520,7 +520,70 @@ mod tests {
             .server_url(&mock_server.url(""))
             .collection_name("top-sites")
             .storage(Box::new(DummyStorage {}))
-            .verifier(Box::new(VerifierWithNoError {}))
+            .verifier(Box::new(DummyVerifier {}))
+            .build();
+
+        let records = client.get().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
+
+        get_changeset_mock.assert_hits(1);
+        get_latest_change_mock.assert_hits(1);
+
+        // Calling again will pull from network.
+        let records_twice = client.get().unwrap();
+        assert_eq!(records_twice.len(), 1);
+
+        get_changeset_mock.assert_hits(2);
+        get_latest_change_mock.assert_hits(2);
+
+        get_changeset_mock.delete();
+        get_latest_change_mock.delete();
+    }
+
+    #[test]
+    fn test_get_with_empty_storage() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mut get_latest_change_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/monitor/collections/changes/changeset")
+                .query_param("_expected", "0");
+            then.body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "not-read",
+                        "last_modified": 888,
+                        "bucket": "main",
+                        "collection": "pocket"
+                    }],
+                    "timestamp": 555
+                }"#,
+            );
+        });
+
+        let mut get_changeset_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/pocket/changeset")
+                .query_param("_expected", "888");
+            then.body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 888,
+                        "foo": "bar"
+                    }],
+                    "timestamp": 555
+                }"#,
+            );
+        });
+
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("pocket")
+            .storage(Box::new(MemoryStorage::new()))
+            .verifier(Box::new(DummyVerifier {}))
             .build();
 
         let records = client.get().unwrap();
@@ -528,13 +591,21 @@ mod tests {
         assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
 
         get_changeset_mock.assert();
-        get_changeset_mock.delete();
         get_latest_change_mock.assert();
+
+        // Calling again won't pull from network.
+        let records_twice = client.get().unwrap();
+        assert_eq!(records_twice.len(), 1);
+
+        get_changeset_mock.assert_hits(1);
+        get_latest_change_mock.assert_hits(1);
+
+        get_changeset_mock.delete();
         get_latest_change_mock.delete();
     }
 
     #[test]
-    fn test_get_empty_storage() {
+    fn test_get_empty_storage_no_sync_if_empty() {
         init();
         let mock_server = MockServer::start();
 
