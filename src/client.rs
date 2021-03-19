@@ -479,6 +479,61 @@ mod tests {
     }
 
     #[test]
+    fn test_get_works_with_dummy_storage() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mut get_latest_change_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/monitor/collections/changes/changeset")
+                .query_param("_expected", "0");
+            then.body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "not-read",
+                        "last_modified": 555,
+                        "bucket": "main",
+                        "collection": "top-sites"
+                    }],
+                    "timestamp": 555
+                }"#,
+            );
+        });
+
+        let mut get_changeset_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/top-sites/changeset")
+                .query_param("_expected", "555");
+            then.body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 555,
+                        "foo": "bar"
+                    }],
+                    "timestamp": 555
+                }"#,
+            );
+        });
+
+        let mut client = Client::builder()
+            .server_url(&mock_server.url(""))
+            .collection_name("top-sites")
+            .storage(Box::new(DummyStorage {}))
+            .verifier(Box::new(VerifierWithNoError {}))
+            .build();
+
+        let records = client.get().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
+
+        get_changeset_mock.assert();
+        get_changeset_mock.delete();
+        get_latest_change_mock.assert();
+        get_latest_change_mock.delete();
+    }
+
+    #[test]
     fn test_get_empty_storage() {
         init();
         let mock_server = MockServer::start();
@@ -619,59 +674,6 @@ mod tests {
 
         get_changeset_mock.assert();
         get_changeset_mock.delete();
-    }
-
-    #[test]
-    fn test_get_works_with_dummy_storage() {
-        init();
-
-        let mock_server = MockServer::start();
-        let mut get_latest_change_mock = mock_server.mock(|when, then| {
-            when.path("/buckets/monitor/collections/changes/changeset")
-                .query_param("_expected", "0");
-            then.body(
-                r#"{
-                    "metadata": {},
-                    "changes": [{
-                        "id": "not-read",
-                        "last_modified": 555,
-                        "bucket": "main",
-                        "collection": "top-sites"
-                    }],
-                    "timestamp": 555
-                }"#,
-            );
-        });
-
-        let mut get_changeset_mock = mock_server.mock(|when, then| {
-            when.path("/buckets/main/collections/top-sites/changeset")
-                .query_param("_expected", "555");
-            then.body(
-                r#"{
-                    "metadata": {},
-                    "changes": [{
-                        "id": "record-1",
-                        "last_modified": 555,
-                        "foo": "bar"
-                    }],
-                    "timestamp": 555
-                }"#,
-            );
-        });
-
-        let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
-            .collection_name("top-sites")
-            .build();
-
-        let records = client.get().unwrap();
-        assert_eq!(records.len(), 1);
-        assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
-
-        get_changeset_mock.assert();
-        get_changeset_mock.delete();
-        get_latest_change_mock.assert();
-        get_latest_change_mock.delete();
     }
 
     #[test]
