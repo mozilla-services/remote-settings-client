@@ -31,13 +31,15 @@ pub trait Storage {
     /// Store a key, value pair.
     ///
     /// # Errors
-    /// If an error occurs while storing, ```StorageError::Error``` is returned
+    /// If an error occurs while storing, a [`StorageError::WriteError`] is returned.
     fn store(&mut self, key: &str, value: Vec<u8>) -> Result<(), StorageError>;
 
     /// Retrieve a value for a given key.
     ///
     /// # Errors
-    /// If the key cannot be found, ```StorageError::ReadError``` is returned
+    /// If the specified key does not exist, a [`StorageError::KeyNotFound`] is returned.
+    ///
+    /// If an error occurs while reading, a [`StorageError::ReadError`] is returned.
     fn retrieve(&self, key: &str) -> Result<Vec<u8>, StorageError>;
 }
 

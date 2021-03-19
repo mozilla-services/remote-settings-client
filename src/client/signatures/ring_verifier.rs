@@ -31,7 +31,7 @@ impl Verification for RingVerifier {
         // Verify data against signature using public key
         match public_key.verify(&data_bytes, &signature_bytes) {
             Ok(_) => Ok(()),
-            Err(err) => Err(SignatureError::VerificationError(err.to_string())),
+            Err(err) => Err(SignatureError::MismatchError(err.to_string())),
         }
     }
 }

@@ -86,26 +86,23 @@ pub trait Verification {
     /// Verifies signature for a given ```Collection``` struct
     ///
     /// # Errors
-    /// If an error occurs while verifying, ```SignatureError``` is returned
+    /// If all the steps are performed without errors, but the specified collection data
+    /// does not match its signature, then a [`SignatureError::MismatchError`] is returned.
     ///
-    /// If the error is related to the certificate, ```SignatureError::CertificateError``` is returned
-    ///
-    /// If the signature format or content is invalid, ```SignatureError::InvalidSignature``` is returned
-    ///
-    /// If the signature does not match the content, ```SignatureError::VerificationError``` is returned
-    ///
+    /// If errors occur during certificate download, parsing, or data serialization, then
+    /// the corresponding error is returned.
     fn verify(&self, collection: &Collection) -> Result<(), SignatureError>;
 }
 
 #[derive(Debug, Error)]
 pub enum SignatureError {
-    #[error("verification error: {0}")]
-    VerificationError(String),
+    #[error("signature mismatch: {0}")]
+    MismatchError(String),
     #[error("certificate could not be downloaded from {}: HTTP {}", response.url, response.status)]
     CertificateDownloadError { response: Response },
     #[cfg(any(feature = "ring_verifier", feature = "rc_crypto_verifier"))]
     #[error("certificate content could not be parsed: {0}")]
-    CertificateError(#[from] x509::X509Error),
+    CertificateContentError(#[from] x509::X509Error),
     #[error("signature contains invalid base64: {0}")]
     BadSignatureContent(#[from] base64::DecodeError),
     #[error("signature payload has no x5u field")]

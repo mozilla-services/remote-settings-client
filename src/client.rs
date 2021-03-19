@@ -452,7 +452,7 @@ fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -
 #[cfg(test)]
 mod tests {
     use super::signatures::{SignatureError, Verification};
-    use super::{Client, ClientError, Collection, DummyStorage, MemoryStorage, Record};
+    use super::{Client, Collection, DummyStorage, MemoryStorage, Record};
     use env_logger;
     use httpmock::MockServer;
     use serde_json::json;
@@ -473,7 +473,7 @@ mod tests {
 
     impl Verification for VerifierWithInvalidSignatureError {
         fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
-            Err(SignatureError::VerificationError(
+            Err(SignatureError::MismatchError(
                 "fake invalid signature".to_owned(),
             ))
         }
@@ -544,7 +544,7 @@ mod tests {
         let err = client.get().unwrap_err();
         assert_eq!(
             err.to_string(),
-            "content signature could not be verified: verification error: fake invalid signature"
+            "content signature could not be verified: signature mismatch: fake invalid signature"
         );
     }
 
@@ -864,7 +864,7 @@ mod tests {
         let err = client.sync(42).unwrap_err();
         assert_eq!(
             err.to_string(),
-            "content signature could not be verified: verification error: fake invalid signature"
+            "content signature could not be verified: signature mismatch: fake invalid signature"
         );
 
         get_changeset_mock.assert();

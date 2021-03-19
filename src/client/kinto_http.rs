@@ -70,6 +70,7 @@ impl std::fmt::Display for ErrorResponse {
     }
 }
 
+/// Fetches the current collection timestamp from the server.
 pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result<u64> {
     let response = get_changeset(&server, "monitor", "changes", None, None)?;
     let change = response
@@ -93,6 +94,7 @@ pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result
     Ok(last_modified)
 }
 
+/// Fetches the collection content from the server.
 pub fn get_changeset(
     server: &str,
     bid: &str,
