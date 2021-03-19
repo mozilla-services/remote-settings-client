@@ -155,8 +155,7 @@ pub fn get_changeset(
 #[cfg(test)]
 mod tests {
     use super::{get_changeset, get_latest_change_timestamp, KintoError};
-    use httpmock::Method::GET;
-    use httpmock::{Mock, MockServer};
+    use httpmock::MockServer;
     use viaduct::set_backend;
     use viaduct_reqwest::ReqwestBackend;
 
@@ -171,27 +170,25 @@ mod tests {
 
         let mock_server = MockServer::start();
         let mock_server_address = mock_server.url("");
-        let mock_body = r#"{
-            "metadata": {},
-            "changes": [
-                {
-                    "id": "123",
-                    "last_modified": 9173,
-                    "bucket":"main",
-                    "collection":"url-classifier-skip-urls",
-                    "host":"localhost:5000"
-                }
-            ],
-            "timestamp": 42
-        }"#;
 
-        let mut get_latest_change_mock = Mock::new()
-            .expect_method(GET)
-            .expect_path("/buckets/monitor/collections/changes/changeset")
-            .return_status(200)
-            .return_header("Content-Type", "application/json")
-            .return_body(mock_body)
-            .create_on(&mock_server);
+        let mut get_latest_change_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/monitor/collections/changes/changeset");
+            then.body(
+                r#"{
+                    "metadata": {},
+                    "changes": [
+                        {
+                            "id": "123",
+                            "last_modified": 9173,
+                            "bucket":"main",
+                            "collection":"url-classifier-skip-urls",
+                            "host":"localhost:5000"
+                        }
+                    ],
+                    "timestamp": 42
+                }"#
+            );
+        });
 
         let res =
             get_latest_change_timestamp(&mock_server_address, "main", "url-classifier-skip-urls")
@@ -220,17 +217,15 @@ mod tests {
 
         let mock_server = MockServer::start();
         let mock_server_address = mock_server.url("");
-        let mock_body = r#"{
-            "met :
-        }"#;
 
-        let mut get_latest_change_mock = Mock::new()
-            .expect_method(GET)
-            .expect_path("/buckets/monitor/collections/changes/changeset")
-            .return_status(200)
-            .return_header("Content-Type", "application/json")
-            .return_body(mock_body)
-            .create_on(&mock_server);
+        let mut get_latest_change_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/monitor/collections/changes/changeset");
+            then.body(
+                r#"{
+                    "met :
+                }"#
+            );
+        });
 
         let err =
             get_latest_change_timestamp(&mock_server_address, "main", "url-classifier-skip-urls")
@@ -246,27 +241,25 @@ mod tests {
 
         let mock_server = MockServer::start();
         let mock_server_address = mock_server.url("");
-        let mock_body = r#"{
-            "metadata": {},
-            "changes": [
-                {
-                    "id": "123",
-                    "last_modified": "foo",
-                    "bucket":"main",
-                    "collection":"url-classifier-skip-urls",
-                    "host":"localhost:5000"
-                }
-            ],
-            "timestamp": 42
-        }"#;
 
-        let mut get_latest_change_mock = Mock::new()
-            .expect_method(GET)
-            .expect_path("/buckets/monitor/collections/changes/changeset")
-            .return_status(200)
-            .return_header("Content-Type", "application/json")
-            .return_body(mock_body)
-            .create_on(&mock_server);
+        let mut get_latest_change_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/monitor/collections/changes/changeset");
+            then.body(
+                r#"{
+                    "metadata": {},
+                    "changes": [
+                        {
+                            "id": "123",
+                            "last_modified": "foo",
+                            "bucket":"main",
+                            "collection":"url-classifier-skip-urls",
+                            "host":"localhost:5000"
+                        }
+                    ],
+                    "timestamp": 42
+                }"#,
+            );
+        });
 
         let err =
             get_latest_change_timestamp(&mock_server_address, "main", "url-classifier-skip-urls")
@@ -292,13 +285,10 @@ mod tests {
         let mock_server = MockServer::start();
         let mock_server_address = mock_server.url("");
 
-        let mut get_changeset_mock = Mock::new()
-            .expect_method(GET)
-            .return_header("Content-Type", "application/json")
-            .expect_path("/buckets/main/collections/cfr/changeset")
-            .expect_query_param("_expected", "0")
-            .return_status(400)
-            .return_body(
+        let mut get_changeset_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/cfr/changeset")
+                .query_param("_expected", "0");
+            then.status(400).body(
                 r#"{
                     "code": 400,
                     "error": "Bad request",
@@ -309,8 +299,8 @@ mod tests {
                         "location": "querystring"
                     }
                 }"#,
-            )
-            .create_on(&mock_server);
+            );
+        });
 
         let err = get_changeset(&mock_server_address, "main", "cfr", None, None).unwrap_err();
 
@@ -336,22 +326,18 @@ mod tests {
         let mock_server = MockServer::start();
         let mock_server_address = mock_server.url("");
 
-        let mut get_changeset_mock = Mock::new()
-            .expect_method(GET)
-            .return_header("Content-Type", "application/json")
-            .return_header("Retry-After", "360")
-            .expect_path("/buckets/main/collections/cfr/changeset")
-            .expect_query_param("_expected", "0")
-            .return_status(503)
-            .return_body(
+        let mut get_changeset_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/cfr/changeset")
+                .query_param("_expected", "0");
+            then.status(503).header("Retry-After", "360").body(
                 r#"{
                     "code": 503,
                     "error": "Service unavailable",
                     "errno": 999,
                     "message": "Boom"
                 }"#,
-            )
-            .create_on(&mock_server);
+            );
+        });
 
         let err = get_changeset(&mock_server_address, "main", "cfr", None, None).unwrap_err();
 

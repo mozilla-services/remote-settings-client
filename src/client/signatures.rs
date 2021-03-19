@@ -122,8 +122,7 @@ pub enum SignatureError {
 mod tests {
     use crate::{Collection, Record, SignatureError, Verification};
     use env_logger;
-    use httpmock::Method::GET;
-    use httpmock::{Mock, MockServer};
+    use httpmock::MockServer;
     use serde_json::json;
     use viaduct::set_backend;
     use viaduct_reqwest::ReqwestBackend;
@@ -142,15 +141,12 @@ mod tests {
         certificate: &str,
         should_fail: bool,
     ) {
-        let mut get_pem_certificate = Mock::new()
-            .expect_method(GET)
-            .expect_path(
+        let mut get_pem_certificate = mock_server.mock(|when, then| {
+            when.path(
                 "/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain",
-            )
-            .return_status(200)
-            .return_header("Content-Type", "application/json")
-            .return_body(certificate)
-            .create_on(&mock_server);
+            );
+            then.body(certificate);
+        });
 
         let mut verifiers: Vec<Box<dyn Verification>> = Vec::new();
 
@@ -168,7 +164,7 @@ mod tests {
             }
         }
 
-        assert_eq!(verifiers.len(), get_pem_certificate.times_called());
+        get_pem_certificate.assert_hits(verifiers.len());
         get_pem_certificate.delete();
     }
 
@@ -200,11 +196,10 @@ mod tests {
         let _ = set_backend(&ReqwestBackend);
         let mock_server = MockServer::start();
         let mock_server_address = mock_server.url("/file.pem");
-        let mut pem_mock = Mock::new()
-            .expect_method(GET)
-            .expect_path("/file.pem")
-            .return_status(404)
-            .create_on(&mock_server);
+        let mut pem_mock = mock_server.mock(|when, then| {
+            when.path("/file.pem");
+            then.status(404);
+        });
 
         let expectations: Vec<(&str, &str)> = vec![
             ("%^", "bad URL format: relative URL without a base"),

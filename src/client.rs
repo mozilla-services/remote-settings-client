@@ -454,8 +454,7 @@ mod tests {
     use super::signatures::{SignatureError, Verification};
     use super::{Client, ClientError, Collection, DummyStorage, MemoryStorage, Record};
     use env_logger;
-    use httpmock::Method::GET;
-    use httpmock::{Mock, MockServer};
+    use httpmock::MockServer;
     use serde_json::json;
     use viaduct::set_backend;
     use viaduct_reqwest::ReqwestBackend;
@@ -483,13 +482,6 @@ mod tests {
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
         let _ = set_backend(&ReqwestBackend);
-    }
-
-    fn mock_json() -> Mock {
-        Mock::new()
-            .expect_method(GET)
-            .return_status(200)
-            .return_header("Content-Type", "application/json")
     }
 
     #[test]
@@ -561,17 +553,17 @@ mod tests {
         init();
 
         let mock_server = MockServer::start();
-        let mut get_changeset_mock = mock_json()
-            .expect_path("/buckets/main/collections/regions/changeset")
-            .expect_query_param("_expected", "42")
-            .return_body(
+        let mut get_changeset_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/regions/changeset")
+                .query_param("_expected", "42");
+            then.body(
                 r#"{
                     "metadata": {},
                     "changes": [],
                     "timestamp": 0
                 }"#,
-            )
-            .create_on(&mock_server);
+            );
+        });
 
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
@@ -584,7 +576,7 @@ mod tests {
 
         assert_eq!(client.get().unwrap().len(), 0);
 
-        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
 
@@ -593,10 +585,10 @@ mod tests {
         init();
 
         let mock_server = MockServer::start();
-        let mut get_changeset_mock = mock_json()
-            .expect_path("/buckets/main/collections/blocklist/changeset")
-            .expect_query_param("_expected", "123")
-            .return_body(
+        let mut get_changeset_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/blocklist/changeset")
+                .query_param("_expected", "123");
+            then.body(
                 r#"{
                     "metadata": {},
                     "changes": [{
@@ -606,8 +598,8 @@ mod tests {
                     }],
                     "timestamp": 123
                 }"#,
-            )
-            .create_on(&mock_server);
+            );
+        });
 
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
@@ -623,7 +615,7 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
 
-        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
 
@@ -632,10 +624,10 @@ mod tests {
         init();
 
         let mock_server = MockServer::start();
-        let mut get_latest_change_mock = mock_json()
-            .expect_path("/buckets/monitor/collections/changes/changeset")
-            .expect_query_param("_expected", "0")
-            .return_body(
+        let mut get_latest_change_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/monitor/collections/changes/changeset")
+                .query_param("_expected", "0");
+            then.body(
                 r#"{
                     "metadata": {},
                     "changes": [{
@@ -646,13 +638,13 @@ mod tests {
                     }],
                     "timestamp": 555
                 }"#,
-            )
-            .create_on(&mock_server);
+            );
+        });
 
-        let mut get_changeset_mock = mock_json()
-            .expect_path("/buckets/main/collections/top-sites/changeset")
-            .expect_query_param("_expected", "555")
-            .return_body(
+        let mut get_changeset_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/top-sites/changeset")
+                .query_param("_expected", "555");
+            then.body(
                 r#"{
                     "metadata": {},
                     "changes": [{
@@ -662,8 +654,8 @@ mod tests {
                     }],
                     "timestamp": 555
                 }"#,
-            )
-            .create_on(&mock_server);
+            );
+        });
 
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
@@ -676,9 +668,9 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
 
-        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.assert();
         get_changeset_mock.delete();
-        assert_eq!(1, get_latest_change_mock.times_called());
+        get_latest_change_mock.assert();
         get_latest_change_mock.delete();
     }
 
@@ -687,9 +679,9 @@ mod tests {
         init();
 
         let mock_server = MockServer::start();
-        let mut get_latest_change_mock = mock_json()
-            .expect_path("/buckets/monitor/collections/changes/changeset")
-            .return_body(
+        let mut get_latest_change_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/monitor/collections/changes/changeset");
+            then.body(
                 r#"{
                     "metadata": {},
                     "changes": [{
@@ -700,24 +692,24 @@ mod tests {
                     }],
                     "timestamp": 42
                 }"#,
-            )
-            .create_on(&mock_server);
+            );
+        });
 
-        let mut get_changeset_mock = mock_json()
-            .expect_path("/buckets/main/collections/fxmonitor/changeset")
-            .expect_query_param("_expected", "123")
-            .return_body(
+        let mut get_changeset_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/fxmonitor/changeset")
+                .query_param("_expected", "123");
+            then.body(
                 r#"{
-                    "metadata": {},
-                    "changes": [{
-                        "id": "record-1",
-                        "last_modified": 555,
-                        "foo": "bar"
-                    }],
-                    "timestamp": 555
-                }"#,
-            )
-            .create_on(&mock_server);
+                        "metadata": {},
+                        "changes": [{
+                            "id": "record-1",
+                            "last_modified": 555,
+                            "foo": "bar"
+                        }],
+                        "timestamp": 555
+                    }"#,
+            );
+        });
 
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
@@ -727,8 +719,8 @@ mod tests {
 
         client.sync(None).unwrap();
 
-        assert_eq!(1, get_changeset_mock.times_called());
-        assert_eq!(1, get_latest_change_mock.times_called());
+        get_changeset_mock.assert();
+        get_latest_change_mock.assert();
         get_changeset_mock.delete();
         get_latest_change_mock.delete();
     }
@@ -738,10 +730,10 @@ mod tests {
         init();
 
         let mock_server = MockServer::start();
-        let mut get_changeset_mock = mock_json()
-            .expect_path("/buckets/main/collections/pioneers/changeset")
-            .expect_query_param("_expected", "13")
-            .return_body(
+        let mut get_changeset_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/pioneers/changeset")
+                .query_param("_expected", "13");
+            then.body(
                 r#"{
                     "metadata": {},
                     "changes": [{
@@ -751,8 +743,8 @@ mod tests {
                     }],
                     "timestamp": 13
                 }"#,
-            )
-            .create_on(&mock_server);
+            );
+        });
 
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
@@ -762,7 +754,7 @@ mod tests {
 
         client.sync(13).unwrap();
 
-        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
 
@@ -771,9 +763,9 @@ mod tests {
         init();
 
         let mock_server = MockServer::start();
-        let mut get_latest_change_mock = mock_json()
-            .expect_path("/buckets/monitor/collections/changes/changeset")
-            .return_body(
+        let mut get_latest_change_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/monitor/collections/changes/changeset");
+            then.body(
                 r#"{
                     "metadata": {},
                     "changes": [{
@@ -784,8 +776,8 @@ mod tests {
                     }],
                     "timestamp": 42
                 }"#,
-            )
-            .create_on(&mock_server);
+            );
+        });
 
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
@@ -798,7 +790,7 @@ mod tests {
             "API failure: unknown collection: main/url-classifier-skip-urls",
         );
 
-        assert_eq!(1, get_latest_change_mock.times_called());
+        get_latest_change_mock.assert();
         get_latest_change_mock.delete();
     }
 
@@ -808,10 +800,10 @@ mod tests {
         init();
 
         let mock_server = MockServer::start();
-        let mut get_changeset_mock = mock_json()
-            .expect_path("/buckets/main/collections/onecrl/changeset")
-            .expect_query_param("_expected", "42")
-            .return_body(
+        let mut get_changeset_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/onecrl/changeset")
+                .query_param("_expected", "42");
+            then.body(
                 r#"{
                     "metadata": {
                         "missing": "x5u"
@@ -823,8 +815,8 @@ mod tests {
                     }],
                     "timestamp": 13
                 }"#,
-            )
-            .create_on(&mock_server);
+            );
+        });
 
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
@@ -839,7 +831,7 @@ mod tests {
             "content signature could not be verified: signature payload has no x5u field"
         );
 
-        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
     #[test]
@@ -847,10 +839,10 @@ mod tests {
         init();
 
         let mock_server = MockServer::start();
-        let mut get_changeset_mock = mock_json()
-            .expect_path("/buckets/main/collections/password-recipes/changeset")
-            .expect_query_param("_expected", "42")
-            .return_body(
+        let mut get_changeset_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/password-recipes/changeset")
+                .query_param("_expected", "42");
+            then.body(
                 r#"{
                     "metadata": {},
                     "changes": [{
@@ -860,8 +852,8 @@ mod tests {
                     }],
                     "timestamp": 13
                 }"#,
-            )
-            .create_on(&mock_server);
+            );
+        });
 
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
@@ -875,7 +867,7 @@ mod tests {
             "content signature could not be verified: verification error: fake invalid signature"
         );
 
-        assert_eq!(1, get_changeset_mock.times_called());
+        get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
 
@@ -884,10 +876,10 @@ mod tests {
         init();
 
         let mock_server = MockServer::start();
-        let mut get_changeset_mock_1 = mock_json()
-            .expect_path("/buckets/main/collections/onecrl/changeset")
-            .expect_query_param("_expected", "15")
-            .return_body(
+        let mut get_changeset_mock_1 = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/onecrl/changeset")
+                .query_param("_expected", "15");
+            then.body(
                 r#"{
                     "metadata": {},
                     "changes": [{
@@ -903,8 +895,8 @@ mod tests {
                     }],
                     "timestamp": 15
                 }"#,
-            )
-            .create_on(&mock_server);
+            );
+        });
 
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
@@ -916,14 +908,14 @@ mod tests {
         let res = client.sync(15).unwrap();
         assert_eq!(res.records.len(), 3);
 
-        assert_eq!(1, get_changeset_mock_1.times_called());
+        get_changeset_mock_1.assert();
         get_changeset_mock_1.delete();
 
-        let mut get_changeset_mock_2 = mock_json()
-            .expect_path("/buckets/main/collections/onecrl/changeset")
-            .expect_query_param("_since", "15")
-            .expect_query_param("_expected", "42")
-            .return_body(
+        let mut get_changeset_mock_2 = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/onecrl/changeset")
+                .query_param("_since", "15")
+                .query_param("_expected", "42");
+            then.body(
                 r#"{
                     "metadata": {},
                     "changes": [{
@@ -940,8 +932,8 @@ mod tests {
                     }],
                     "timestamp": 42
                 }"#,
-            )
-            .create_on(&mock_server);
+            );
+        });
 
         let res = client.sync(42).unwrap();
         assert_eq!(res.records.len(), 4);
@@ -954,7 +946,7 @@ mod tests {
         let record_1 = &res.records[record_1_idx];
         assert_eq!(record_1["field"].as_str().unwrap(), "after");
 
-        assert_eq!(1, get_changeset_mock_2.times_called());
+        get_changeset_mock_2.assert();
         get_changeset_mock_2.delete();
     }
 
