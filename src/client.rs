@@ -245,6 +245,7 @@ impl Default for Client {
     }
 }
 
+
 impl Client {
     /// Creates a `ClientBuilder` to configure a `Client`.
     pub fn builder() -> ClientBuilder {
@@ -446,6 +447,27 @@ mod tests {
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
         let _ = set_backend(&ReqwestBackend);
+    }
+
+    #[test]
+    fn test_fails_if_no_collection() {
+        let res = Client::builder().build();
+
+        assert_eq!(res.err().unwrap().to_string(), "`collection_name` must be initialized");
+    }
+
+    #[test]
+    fn test_default_builder() {
+        let client = Client::builder()
+            .collection_name("cid")
+            .build()
+            .unwrap();
+
+        // Assert defaults for consumers.
+        assert!(client.server_url.contains("services.mozilla.com"), client.server_url);
+        assert_eq!(client.bucket_name, "main");
+        assert_eq!(client.sync_if_empty, true);
+        assert_eq!(client.trust_local, true);
     }
 
     #[test]
