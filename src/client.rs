@@ -219,7 +219,7 @@ pub struct Collection {
 /// ### Custom
 /// See [`Verification`] for implementing a custom signature verifier.
 ///
-#[derive(Builder)]
+#[derive(Builder, Debug)]
 #[builder(pattern = "owned")] // No clone because of Box<dyn...>
 pub struct Client {
     #[builder(setter(into), default = "DEFAULT_SERVER_URL.to_owned()")]
@@ -242,6 +242,18 @@ pub struct Client {
 impl Default for Client {
     fn default() -> Self {
         Client::builder().build().unwrap()
+    }
+}
+
+impl std::fmt::Debug for Box<dyn Verification> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Box<dyn Verification>")
+    }
+}
+
+impl std::fmt::Debug for Box<dyn Storage> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Box<dyn Storage>")
     }
 }
 
@@ -451,9 +463,9 @@ mod tests {
 
     #[test]
     fn test_fails_if_no_collection() {
-        let res = Client::builder().build();
+        let err = Client::builder().build().unwrap_err();
 
-        assert_eq!(res.err().unwrap().to_string(), "`collection_name` must be initialized");
+        assert_eq!(err.to_string(), "`collection_name` must be initialized");
     }
 
     #[test]
@@ -468,6 +480,8 @@ mod tests {
         assert_eq!(client.bucket_name, "main");
         assert_eq!(client.sync_if_empty, true);
         assert_eq!(client.trust_local, true);
+        // And Debug format
+        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true }");
     }
 
     #[test]
