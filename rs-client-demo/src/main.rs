@@ -36,7 +36,8 @@ fn main() {
 
     let mut client = Client::builder()
         .collection_name("url-classifier-skip-urls")
-        .build();
+        .build()
+        .unwrap();
 
     match client.get() {
         Ok(records) => println!("{} records.", records.len()),
@@ -48,7 +49,8 @@ fn main() {
     let mut client_with_custom_verifier = Client::builder()
         .collection_name("url-classifier-skip-urls")
         .verifier(Box::new(CustomVerifier {}))
-        .build();
+        .build()
+        .unwrap();
 
     match client_with_custom_verifier.get() {
         Ok(records) => println!("{} records.", records.len()),
@@ -69,7 +71,8 @@ fn main() {
             .bucket_name(&collection.bucket)
             .collection_name(&collection.collection)
             .storage(Box::new(FileStorage { folder: "/tmp".into(), ..FileStorage::default() }))
-            .build();
+            .build()
+            .unwrap();
 
         match client.get() {
             Ok(records) => println!("{} records.", records.len()),
