@@ -4,8 +4,9 @@
 
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use url::{ParseError, Url};
-use viaduct::{Error as ViaductError, Request};
+use thiserror::Error;
+use url::{ParseError as URLParseError, Url};
+use viaduct::{Error as ViaductError, Request, Response};
 
 pub type KintoObject = serde_json::Value;
 
@@ -30,27 +31,34 @@ pub struct ErrorResponse {
     pub details: Option<serde_json::Value>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Error)]
 pub enum KintoError {
-    /// Errors related to a malformed request.
-    ClientError {
-        name: String,
-        response: Option<ErrorResponse>,
-    },
-    /// Errors occured on the server side.
+    #[error("a server error occured on {} {}: {}", response.request_method, response.url, info)]
     ServerError {
-        name: String,
+        response: Response,
+        info: ErrorResponse,
         retry_after: Option<u64>,
-        response: Option<ErrorResponse>,
     },
-    ContentError {
-        name: String,
+    #[error("the server responded with unexpected content on {} {}: HTTP {}", response.request_method, response.url, response.status)]
+    UnexpectedResponse { response: Response },
+    #[error("invalid request on {} {}: {}", response.request_method, response.url, info)]
+    ClientRequestError {
+        response: Response,
+        info: ErrorResponse,
     },
-    UnknownCollection {
-        bucket: String,
-        collection: String,
-    },
+    #[error("changeset timestamp could not be parsed: {0}")]
+    InvalidChangesetTimestamp(String),
+    #[error("changeset content could not be parsed: {0}")]
+    InvalidChangesetBody(#[from] serde_json::Error),
+    #[error("unknown collection: {bucket}/{collection}")]
+    UnknownCollection { bucket: String, collection: String },
+    #[error("HTTP backend issue: {0}")]
+    HTTPBackendError(#[from] ViaductError),
+    #[error("bad URL format: {0}")]
+    URLError(#[from] URLParseError),
 }
+
+type Result<T> = std::result::Result<T, KintoError>;
 
 impl std::fmt::Display for ErrorResponse {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -62,25 +70,7 @@ impl std::fmt::Display for ErrorResponse {
     }
 }
 
-impl From<ViaductError> for KintoError {
-    fn from(err: ViaductError) -> Self {
-        KintoError::ClientError {
-            name: format!("Viaduct error: {}", err),
-            response: None,
-        }
-    }
-}
-
-impl From<ParseError> for KintoError {
-    fn from(err: ParseError) -> Self {
-        KintoError::ClientError {
-            name: format!("URL parse error: {}", err),
-            response: None,
-        }
-    }
-}
-
-pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result<u64, KintoError> {
+pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result<u64> {
     // When we fetch the monitor/changes endpoint manually (ie. not from a push notification)
     // we cannot know the current timestamp, and use 0 abritrarily.
     let expected = 0;
@@ -89,76 +79,80 @@ pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result
         .changes
         .iter()
         .find(|&x| x["bucket"] == bid && x["collection"] == cid)
-        .ok_or(KintoError::UnknownCollection {
+        .ok_or_else(|| KintoError::UnknownCollection {
             bucket: bid.to_string(),
             collection: cid.to_string(),
         })?;
 
-    let last_modified = change["last_modified"]
-        .as_u64()
-        .ok_or(KintoError::ContentError {
-            name: format!("Bad server timestamp: {}", change["last_modified"]),
-        })?;
+    let last_modified =
+        change["last_modified"]
+            .as_u64()
+            .ok_or_else(|| KintoError::InvalidChangesetTimestamp(
+                change["last_modified"].to_string(),
+            ))?;
 
     debug!("{}/{}: last_modified={}", bid, cid, last_modified);
 
     Ok(last_modified)
 }
 
+/// Fetches the collection content from the server.
 pub fn get_changeset(
     server: &str,
     bid: &str,
     cid: &str,
     expected: u64,
     since: Option<u64>,
-) -> Result<ChangesetResponse, KintoError> {
+) -> Result<ChangesetResponse> {
     let since_param = since.map_or_else(String::new, |v| format!("&_since={}", v));
     let url = format!(
         "{}/buckets/{}/collections/{}/changeset?_expected={}{}",
         server, bid, cid, expected, since_param
     );
     info!("Fetch {}...", url);
-    let resp = Request::get(Url::parse(&url)?).send()?;
+    let response = Request::get(Url::parse(&url)?).send()?;
 
-    if !resp.is_success() {
-        let error: ErrorResponse = resp.json().unwrap_or(ErrorResponse {
-            code: resp.status,
-            errno: 999,
-            error: "Unknown".to_owned(),
-            message: "Bad error format".to_owned(),
-            details: None,
-        });
+    if !response.is_success() {
+        // Try to parse the server error response into JSON.
+        // See https://docs.kinto-storage.org/en/stable/api/1.x/errors.html#error-responses
+        let info: ErrorResponse = match response.json() {
+            Ok(v) => v,
+            Err(_) => {
+                return Err(KintoError::UnexpectedResponse {
+                    response,
+                })
+            }
+        };
 
-        if resp.is_client_error() {
-            return Err(KintoError::ClientError {
-                name: format!("{} for {}", error, resp.url.path()),
-                response: Some(error),
+        // Error due to the client. The request must be modified.
+        if response.is_client_error() {
+            return Err(KintoError::ClientRequestError {
+                response,
+                info,
             });
         }
 
-        if resp.is_server_error() {
-            let retry_after = resp
+        if response.is_server_error() {
+            let retry_after = response
                 .headers
                 .get("retry-after")
                 .map_or_else(|| None, |v| v.parse::<u64>().ok());
 
             return Err(KintoError::ServerError {
-                name: format!("{} from {}", error, resp.url.path()),
+                response,
+                info,
                 retry_after,
-                response: Some(error),
             });
         }
     }
 
-    let size: i64 = resp
+    let size: i64 = response
         .headers
         .get("content-length")
         .map_or_else(|| -1, |v| v.parse().unwrap_or(-1));
 
     debug!("Download {:?} bytes...", size);
-    resp.json().map_err(|err| KintoError::ContentError {
-        name: format!("JSON content error: {}", err),
-    })
+    Ok(response.json::<ChangesetResponse>()?)
 }
 
 #[cfg(test)]
@@ -214,12 +208,10 @@ mod tests {
 
         let err =
             get_latest_change_timestamp("%^", "main", "url-classifier-skip-urls").unwrap_err();
-        match err {
-            KintoError::ClientError { name, .. } => {
-                assert_eq!(name, "URL parse error: relative URL without a base")
-            }
-            e => assert!(false, format!("Unexpected error type: {:?}", e)),
-        };
+        assert_eq!(
+            err.to_string(),
+            "bad URL format: relative URL without a base"
+        )
     }
 
     #[test]
@@ -241,13 +233,7 @@ mod tests {
         let err =
             get_latest_change_timestamp(&mock_server_address, "main", "url-classifier-skip-urls")
                 .unwrap_err();
-
-        match err {
-            KintoError::ContentError { name, .. } => {
-                assert!(name.contains("JSON content error: control character"))
-            }
-            e => assert!(false, format!("Unexpected error type: {:?}", e)),
-        };
+        assert_eq!(err.to_string(), "changeset content could not be parsed: control character (\\u0000-\\u001F) found while parsing a string at line 3 column 0");
 
         get_latest_change_mock.delete();
     }
@@ -283,8 +269,11 @@ mod tests {
                 .unwrap_err();
 
         match err {
-            KintoError::ContentError { name, .. } => {
-                assert_eq!(name, "Bad server timestamp: \"foo\"")
+            KintoError::InvalidChangesetTimestamp(_) => {
+                assert_eq!(
+                    err.to_string(),
+                    "changeset timestamp could not be parsed: \"foo\""
+                )
             }
             e => assert!(false, format!("Unexpected error type: {:?}", e)),
         };
@@ -307,7 +296,7 @@ mod tests {
                     "code": 400,
                     "error": "Bad request",
                     "errno": 123,
-                    "message": "Bad value '0' for _expected",
+                    "message": "Bad value '0' for '_expected'",
                     "details": {
                         "field": "_expected",
                         "location": "querystring"
@@ -319,13 +308,12 @@ mod tests {
         let err = get_changeset(&mock_server_address, "main", "cfr", 451, None).unwrap_err();
 
         match err {
-            KintoError::ClientError { name, response } => {
-                assert_eq!(name, "HTTP 400 Bad request: Bad value '0' for _expected (#123) for /buckets/main/collections/cfr/changeset".to_owned());
-                let info = &response.unwrap();
-                let details = info.details.as_ref().unwrap();
+            KintoError::ClientRequestError { ref info, .. } => {
+                assert_eq!(err.to_string(), format!("invalid request on GET {}/buckets/main/collections/cfr/changeset?_expected=451: HTTP 400 Bad request: Bad value \'0\' for \'_expected\' (#123)", mock_server.base_url()));
                 assert_eq!(info.errno, 123);
                 assert_eq!(info.code, 400);
                 assert_eq!(info.error, "Bad request");
+                let details = info.details.as_ref().unwrap();
                 assert_eq!(details["field"].as_str().unwrap(), "_expected");
             }
             e => assert!(false, format!("Unexpected error type: {:?}", e)),
@@ -358,13 +346,12 @@ mod tests {
 
         match err {
             KintoError::ServerError {
-                name,
                 retry_after,
-                response,
+                ref info,
+                ..
             } => {
-                assert_eq!(name, "HTTP 503 Service unavailable: Boom (#999) from /buckets/main/collections/cfr/changeset".to_owned());
+                assert_eq!(err.to_string(), format!("a server error occured on GET {}/buckets/main/collections/cfr/changeset?_expected=42: HTTP 503 Service unavailable: Boom (#999)", mock_server.base_url()));
                 assert_eq!(retry_after, Some(360));
-                let info = &response.unwrap();
                 assert_eq!(info.errno, 999);
                 assert_eq!(info.code, 503);
                 assert_eq!(info.error, "Service unavailable");

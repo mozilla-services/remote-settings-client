@@ -26,9 +26,7 @@ impl Default for FileStorage {
 
 impl From<std::io::Error> for StorageError {
     fn from(err: std::io::Error) -> Self {
-        StorageError::WriteError {
-            name: err.to_string(),
-        }
+        StorageError::WriteError(err.to_string())
     }
 }
 
@@ -64,9 +62,7 @@ impl Storage for FileStorage {
         {
             Err(err) => {
                 error!("Couldn't open or create {:?}: {}", path, err);
-                Err(StorageError::WriteError {
-                    name: err.to_string(),
-                })
+                Err(StorageError::WriteError(err.to_string()))
             }
             Ok(mut file) => {
                 file.write_all(&value)?;
@@ -93,9 +89,7 @@ impl Storage for FileStorage {
         match file.read_to_string(&mut s) {
             Err(err) => {
                 error!("Couldn't read {:?}: {}", path, err);
-                return Err(StorageError::ReadError {
-                    name: err.to_string(),
-                });
+                return Err(StorageError::ReadError(err.to_string()));
             }
             Ok(size) => debug!("Read {} ({} bytes) from {:?}", key, size, path),
         };

@@ -2,32 +2,24 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use super::SignatureError;
+use thiserror::Error;
 use x509_parser::{self, error as x509_errors, nom::Err as NomErr};
 
-impl From<NomErr<x509_errors::X509Error>> for SignatureError {
-    fn from(err: NomErr<x509_errors::X509Error>) -> Self {
-        SignatureError::CertificateError {
-            name: err.to_string(),
-        }
-    }
+#[derive(Debug, Error)]
+pub enum X509Error {
+    #[error("PEM content could not be parsed: {0}")]
+    PEMError(#[from] NomErr<x509_errors::PEMError>),
+    #[error("X509 content could not be parsed: {0}")]
+    X509Error(#[from] NomErr<x509_errors::X509Error>),
+    #[error("PEM is not a certificate: {0}")]
+    WrongPEMType(String),
 }
 
-impl From<NomErr<x509_errors::PEMError>> for SignatureError {
-    fn from(err: NomErr<x509_errors::PEMError>) -> Self {
-        SignatureError::CertificateError {
-            name: err.to_string(),
-        }
-    }
-}
-
-pub fn extract_public_key(pem_bytes: Vec<u8>) -> Result<Vec<u8>, SignatureError> {
+pub fn extract_public_key(pem_bytes: Vec<u8>) -> Result<Vec<u8>, X509Error> {
     // ``openssl x509 -inform PEM -in cert.pem -text``
     let (_, pem) = x509_parser::pem::parse_x509_pem(&pem_bytes)?;
     if pem.label != "CERTIFICATE" {
-        return Err(SignatureError::CertificateError {
-            name: "PEM is not a certificate".to_string(),
-        });
+        return Err(X509Error::WrongPEMType(pem.label));
     }
 
     // Extract SubjectPublicKeyInfo
@@ -43,36 +35,34 @@ pub fn extract_public_key(pem_bytes: Vec<u8>) -> Result<Vec<u8>, SignatureError>
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_public_key, SignatureError};
+    use super::extract_public_key;
 
     #[test]
     fn test_bad_pem_content() {
         let expectations: Vec<(&str, &str)> = vec![
-            ("%^", "Parsing Error: MissingHeader"),
+            (
+                "%^",
+                "PEM content could not be parsed: Parsing Error: MissingHeader",
+            ),
             (
                 "\
 -----BEGIN ENCRYPTED PRIVATE KEY-----
 bGxhIEFNTyBQcm9kdWN0aW9uIFNpZ25pbmcgU2VydmljZTFFMEMGA1UEAww8Q29u
 -----END ENCRYPTED PRIVATE KEY-----",
-                "PEM is not a certificate",
+                "PEM is not a certificate: ENCRYPTED",
             ),
             (
                 "\
 -----BEGIN CERTIFICATE-----
 invalidCertificate
 -----END CERTIFICATE-----",
-                "Parsing Error: Base64DecodeError",
+                "PEM content could not be parsed: Parsing Error: Base64DecodeError",
             ),
         ];
 
         for (input, error) in expectations {
             let err = extract_public_key(input.into()).unwrap_err();
-            match err {
-                SignatureError::CertificateError { name } => {
-                    assert_eq!(name, error)
-                }
-                e => assert!(false, format!("Unexpected error type: {:?}", e)),
-            };
+            assert_eq!(err.to_string(), error);
         }
     }
 }
