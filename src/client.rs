@@ -100,94 +100,6 @@ pub struct Collection {
     pub timestamp: u64,
 }
 
-pub struct ClientBuilder {
-    server_url: String,
-    bucket_name: String,
-    collection_name: String,
-    verifier: Box<dyn Verification>,
-    storage: Box<dyn Storage>,
-    sync_if_empty: bool,
-    trust_local: bool,
-}
-
-impl Default for ClientBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ClientBuilder {
-    /// Constructs a new `ClientBuilder`.
-    ///
-    /// This is the same as `Client::builder()`.
-    pub fn new() -> ClientBuilder {
-        ClientBuilder {
-            server_url: DEFAULT_SERVER_URL.to_owned(),
-            bucket_name: DEFAULT_BUCKET_NAME.to_owned(),
-            collection_name: "".to_owned(),
-            verifier: Box::new(DummyVerifier {}),
-            storage: Box::new(DummyStorage {}),
-            sync_if_empty: true,
-            trust_local: true,
-        }
-    }
-
-    /// Add custom server url to Client
-    pub fn server_url(mut self, server_url: &str) -> ClientBuilder {
-        self.server_url = server_url.to_owned();
-        self
-    }
-
-    /// Add custom bucket name to Client
-    pub fn bucket_name(mut self, bucket_name: &str) -> ClientBuilder {
-        self.bucket_name = bucket_name.to_owned();
-        self
-    }
-
-    /// Add custom collection name to Client
-    pub fn collection_name(mut self, collection_name: &str) -> ClientBuilder {
-        self.collection_name = collection_name.to_owned();
-        self
-    }
-
-    /// Add custom signature verifier to Client
-    pub fn verifier(mut self, verifier: Box<dyn Verification>) -> ClientBuilder {
-        self.verifier = verifier;
-        self
-    }
-
-    /// Add custom storage implementation to Client
-    pub fn storage(mut self, storage: Box<dyn Storage>) -> ClientBuilder {
-        self.storage = storage;
-        self
-    }
-
-    /// Should [`get()`] synchronize when local DB is empty (*default*: `true`)
-    pub fn sync_if_empty(mut self, sync_if_empty: bool) -> ClientBuilder {
-        self.sync_if_empty = sync_if_empty;
-        self
-    }
-
-    /// Should [`get()`] verify signature of local DB (*default*: `true`)
-    pub fn trust_local(mut self, trust_local: bool) -> ClientBuilder {
-        self.trust_local = trust_local;
-        self
-    }
-
-    /// Build Client from ClientBuilder
-    pub fn build(self) -> Client {
-        Client {
-            server_url: self.server_url,
-            bucket_name: self.bucket_name,
-            collection_name: self.collection_name,
-            verifier: self.verifier,
-            storage: self.storage,
-            sync_if_empty: self.sync_if_empty,
-            trust_local: self.trust_local,
-        }
-    }
-}
-
 /// Client to fetch Remote Settings data.
 ///
 /// # Examples
@@ -197,7 +109,8 @@ impl ClientBuilder {
 /// # fn main() {
 /// let client = Client::builder()
 ///   .collection_name("cid")
-///   .build();
+///   .build()
+///   .unwrap();
 /// # }
 /// ```
 /// Or for a specific server or bucket:
@@ -208,7 +121,8 @@ impl ClientBuilder {
 ///   .server_url("https://settings.stage.mozaws.net/v1")
 ///   .bucket_name("main-preview")
 ///   .collection_name("cid")
-///   .build();
+///   .build()
+///   .unwrap();
 /// # }
 /// ```
 ///
@@ -227,7 +141,8 @@ impl ClientBuilder {
 /// let client = Client::builder()
 ///   .collection_name("cid")
 ///   .verifier(Box::new(RingVerifier {}))
-///   .build();
+///   .build()
+///   .unwrap();
 /// # }
 /// ```
 ///
@@ -242,7 +157,8 @@ impl ClientBuilder {
 /// let client = Client::builder()
 ///   .collection_name("cid")
 ///   .verifier(Box::new(RcCryptoVerifier {}))
-///   .build();
+///   .build()
+///   .unwrap();
 /// # }
 /// ```
 /// In order to use it, the NSS library must be available.
@@ -257,27 +173,49 @@ impl ClientBuilder {
 /// ### Custom
 /// See [`Verification`] for implementing a custom signature verifier.
 ///
+#[derive(Builder, Debug)]
+#[builder(pattern = "owned")] // No clone because of Box<dyn...>
 pub struct Client {
+    #[builder(setter(into), default = "DEFAULT_SERVER_URL.to_owned()")]
     server_url: String,
+    #[builder(setter(into), default = "DEFAULT_BUCKET_NAME.to_owned()")]
     bucket_name: String,
+    #[builder(setter(into))]
     collection_name: String,
     // Box<dyn Trait> is necessary since implementation of [`Verification`] can be of any size unknown at compile time
+    #[builder(default = "Box::new(DummyVerifier {})")]
     verifier: Box<dyn Verification>,
+    #[builder(default = "Box::new(DummyStorage {})")]
     storage: Box<dyn Storage>,
+    #[builder(default = "true")]
     sync_if_empty: bool,
+    #[builder(default = "true")]
     trust_local: bool,
 }
 
 impl Default for Client {
     fn default() -> Self {
-        Client::builder().build()
+        Client::builder().build().unwrap()
     }
 }
+
+impl std::fmt::Debug for Box<dyn Verification> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Box<dyn Verification>")
+    }
+}
+
+impl std::fmt::Debug for Box<dyn Storage> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Box<dyn Storage>")
+    }
+}
+
 
 impl Client {
     /// Creates a `ClientBuilder` to configure a `Client`.
     pub fn builder() -> ClientBuilder {
-        ClientBuilder::new()
+        ClientBuilder::default()
     }
 
     pub fn _storage_key(&self) -> String {
@@ -293,7 +231,7 @@ impl Client {
     /// # pub use viaduct_reqwest::ReqwestBackend;
     /// # fn main() {
     /// # set_backend(&ReqwestBackend).unwrap();
-    /// # let mut client = Client::builder().collection_name("url-classifier-skip-urls").build();
+    /// # let mut client = Client::builder().collection_name("url-classifier-skip-urls").build().unwrap();
     /// match client.get() {
     ///   Ok(records) => println!("{:?}", records),
     ///   Err(error) => println!("Error fetching/verifying records: {:?}", error)
@@ -479,6 +417,29 @@ mod tests {
     }
 
     #[test]
+    fn test_fails_if_no_collection() {
+        let err = Client::builder().build().unwrap_err();
+
+        assert_eq!(err.to_string(), "`collection_name` must be initialized");
+    }
+
+    #[test]
+    fn test_default_builder() {
+        let client = Client::builder()
+            .collection_name("cid")
+            .build()
+            .unwrap();
+
+        // Assert defaults for consumers.
+        assert!(client.server_url.contains("services.mozilla.com"), client.server_url);
+        assert_eq!(client.bucket_name, "main");
+        assert_eq!(client.sync_if_empty, true);
+        assert_eq!(client.trust_local, true);
+        // And Debug format
+        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true }");
+    }
+
+    #[test]
     fn test_get_works_with_dummy_storage() {
         init();
 
@@ -521,7 +482,8 @@ mod tests {
             .collection_name("top-sites")
             .storage(Box::new(DummyStorage {}))
             .verifier(Box::new(DummyVerifier {}))
-            .build();
+            .build()
+            .unwrap();
 
         let records = client.get().unwrap();
         assert_eq!(records.len(), 1);
@@ -584,7 +546,8 @@ mod tests {
             .collection_name("pocket")
             .storage(Box::new(MemoryStorage::new()))
             .verifier(Box::new(DummyVerifier {}))
-            .build();
+            .build()
+            .unwrap();
 
         let records = client.get().unwrap();
         assert_eq!(records.len(), 1);
@@ -610,11 +573,12 @@ mod tests {
         let mock_server = MockServer::start();
 
         let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
+            .server_url(mock_server.url(""))
             .collection_name("url-classifier-skip-urls")
             // Explicitly disable sync if empty.
             .sync_if_empty(false)
-            .build();
+            .build()
+            .unwrap();
 
         let err = client.get().unwrap_err();
         assert_eq!(
@@ -629,11 +593,12 @@ mod tests {
         let mock_server = MockServer::start();
 
         let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
+            .server_url(mock_server.url(""))
             .collection_name("cfr")
             .storage(Box::new(MemoryStorage::new()))
             .sync_if_empty(false)
-            .build();
+            .build()
+            .unwrap();
 
         client
             .storage
@@ -650,13 +615,14 @@ mod tests {
         let mock_server = MockServer::start();
 
         let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
+            .server_url(mock_server.url(""))
             .collection_name("search-config")
             .storage(Box::new(MemoryStorage::new()))
             .verifier(Box::new(VerifierWithInvalidSignatureError {}))
             .sync_if_empty(false)
             .trust_local(false)
-            .build();
+            .build()
+            .unwrap();
 
         let collection = Collection {
             bid: "main".to_owned(),
@@ -696,10 +662,11 @@ mod tests {
         });
 
         let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
+            .server_url(mock_server.url(""))
             .collection_name("regions")
             .storage(Box::new(MemoryStorage::new()))
-            .build();
+            .build()
+            .unwrap();
 
         client.sync(42).unwrap();
 
@@ -731,10 +698,11 @@ mod tests {
         });
 
         let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
+            .server_url(mock_server.url(""))
             .collection_name("blocklist")
             .storage(Box::new(MemoryStorage::new()))
-            .build();
+            .build()
+            .unwrap();
 
         client.sync(123).unwrap();
 
@@ -785,9 +753,10 @@ mod tests {
         });
 
         let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
+            .server_url(mock_server.url(""))
             .collection_name("fxmonitor")
-            .build();
+            .build()
+            .unwrap();
 
         client.sync(None).unwrap();
 
@@ -819,9 +788,10 @@ mod tests {
         });
 
         let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
+            .server_url(mock_server.url(""))
             .collection_name("pioneers")
-            .build();
+            .build()
+            .unwrap();
 
         client.sync(13).unwrap();
 
@@ -851,9 +821,10 @@ mod tests {
         });
 
         let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
+            .server_url(mock_server.url(""))
             .collection_name("url-classifier-skip-urls")
-            .build();
+            .build()
+            .unwrap();
 
         let err = client.sync(None).unwrap_err();
         assert_eq!(
@@ -890,10 +861,11 @@ mod tests {
         });
 
         let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
+            .server_url(mock_server.url(""))
             .collection_name("onecrl")
             .verifier(Box::new(RingVerifier {}))
-            .build();
+            .build()
+            .unwrap();
 
         let err = client.sync(42).unwrap_err();
 
@@ -927,10 +899,11 @@ mod tests {
         });
 
         let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
+            .server_url(mock_server.url(""))
             .collection_name("password-recipes")
             .verifier(Box::new(VerifierWithInvalidSignatureError {}))
-            .build();
+            .build()
+            .unwrap();
 
         let err = client.sync(42).unwrap_err();
         assert_eq!(
@@ -970,10 +943,11 @@ mod tests {
         });
 
         let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
+            .server_url(mock_server.url(""))
             .collection_name("onecrl")
             .storage(Box::new(MemoryStorage::new()))
-            .build();
+            .build()
+            .unwrap();
 
         let res = client.sync(15).unwrap();
         assert_eq!(res.records.len(), 3);

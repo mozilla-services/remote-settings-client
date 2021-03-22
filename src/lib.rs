@@ -1,7 +1,6 @@
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
-
 //! # Remote Settings Client
 //!
 //! A library for fetching and synchronizing Remote Settings data.
@@ -20,7 +19,8 @@
 //!     .bucket_name("main-preview")
 //!     .collection_name("search-config")
 //!     .verifier(Box::new(RingVerifier {}))
-//!     .build();
+//!     .build()
+//!     .unwrap();
 //!
 //!   client.sync(None).unwrap();
 //!
@@ -32,6 +32,10 @@
 //! ```
 //!
 //! See [`Client`] for more infos.
+
+#[macro_use]
+extern crate derive_builder;
+
 pub mod client;
 
 pub use client::Client;
