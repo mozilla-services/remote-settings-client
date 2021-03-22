@@ -211,7 +211,6 @@ impl std::fmt::Debug for Box<dyn Storage> {
     }
 }
 
-
 impl Client {
     /// Creates a `ClientBuilder` to configure a `Client`.
     pub fn builder() -> ClientBuilder {
@@ -272,18 +271,14 @@ impl Client {
 
                 Ok(stored.records)
             }
-            Err(err) => {
-                // If storage is empty, go on with sync() (*optional*)
-                if self.sync_if_empty {
-                    if let StorageError::KeyNotFound { .. } = err {
-                        debug!("Synchronize data, without knowning which timestamp to expect.");
-                        let collection = self.sync(None)?;
-                        return Ok(collection.records);
-                    }
-                }
-                // Otherwise, surface the error.
-                Err(err.into())
+            // If storage is empty, go on with sync() (*optional*)
+            Err(StorageError::KeyNotFound { .. }) if self.sync_if_empty => {
+                debug!("Synchronize data, without knowning which timestamp to expect.");
+                let collection = self.sync(None)?;
+                Ok(collection.records)
             }
+            // Otherwise, surface the error.
+            Err(err) => Err(err.into()),
         }
     }
 
@@ -425,13 +420,13 @@ mod tests {
 
     #[test]
     fn test_default_builder() {
-        let client = Client::builder()
-            .collection_name("cid")
-            .build()
-            .unwrap();
+        let client = Client::builder().collection_name("cid").build().unwrap();
 
         // Assert defaults for consumers.
-        assert!(client.server_url.contains("services.mozilla.com"), client.server_url);
+        assert!(
+            client.server_url.contains("services.mozilla.com"),
+            client.server_url
+        );
         assert_eq!(client.bucket_name, "main");
         assert_eq!(client.sync_if_empty, true);
         assert_eq!(client.trust_local, true);
