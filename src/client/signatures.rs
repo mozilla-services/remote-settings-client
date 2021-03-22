@@ -55,9 +55,7 @@ pub trait Verification {
         debug!("Fetching certificate {}", x5u);
         let response = Request::get(Url::parse(&x5u)?).send()?;
         if !response.is_success() {
-            return Err(SignatureError::CertificateDownloadError {
-                response,
-            });
+            return Err(SignatureError::CertificateDownloadError { response });
         }
 
         Ok(response.body)
