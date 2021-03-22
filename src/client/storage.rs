@@ -6,6 +6,8 @@ pub mod dummy_storage;
 pub mod file_storage;
 pub mod memory_storage;
 
+use thiserror::Error;
+
 /// A trait for giving a type a custom storage implementation
 ///
 /// The `Storage` is used to store the collection content locally.
@@ -29,19 +31,24 @@ pub trait Storage {
     /// Store a key, value pair.
     ///
     /// # Errors
-    /// If an error occurs while storing, ```StorageError::Error``` is returned
+    /// If an error occurs while storing, a [`StorageError::WriteError`] is returned.
     fn store(&mut self, key: &str, value: Vec<u8>) -> Result<(), StorageError>;
 
     /// Retrieve a value for a given key.
     ///
     /// # Errors
-    /// If the key cannot be found, ```StorageError::ReadError``` is returned
+    /// If the specified key does not exist, a [`StorageError::KeyNotFound`] is returned.
+    ///
+    /// If an error occurs while reading, a [`StorageError::ReadError`] is returned.
     fn retrieve(&self, key: &str) -> Result<Vec<u8>, StorageError>;
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Error)]
 pub enum StorageError {
-    WriteError { name: String },
-    ReadError { name: String },
+    #[error("cannot write to storage: {0}")]
+    WriteError(String),
+    #[error("cannot read from storage: {0}")]
+    ReadError(String),
+    #[error("key could not be found: {key}")]
     KeyNotFound { key: String },
 }

@@ -9,10 +9,9 @@ mod storage;
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use thiserror::Error;
 
-use kinto_http::{
-    get_changeset, get_latest_change_timestamp, ErrorResponse, KintoError, KintoObject,
-};
+use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject};
 pub use signatures::{SignatureError, Verification};
 pub use storage::{
     dummy_storage::DummyStorage, file_storage::FileStorage, memory_storage::MemoryStorage, Storage,
@@ -30,59 +29,14 @@ use crate::client::signatures::dummy_verifier::DummyVerifier;
 pub const DEFAULT_SERVER_URL: &str = "https://firefox.settings.services.mozilla.com/v1";
 pub const DEFAULT_BUCKET_NAME: &str = "main";
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Error)]
 pub enum ClientError {
-    VerificationError {
-        name: String,
-    },
-    StorageError {
-        name: String,
-    },
-    APIError {
-        name: String,
-        response: Option<ErrorResponse>,
-    },
-}
-
-impl From<KintoError> for ClientError {
-    fn from(err: KintoError) -> Self {
-        match err {
-            KintoError::ServerError { name, response, .. } => {
-                ClientError::APIError { name, response }
-            }
-            KintoError::ClientError { name, response } => ClientError::APIError { name, response },
-            KintoError::ContentError { name } => ClientError::APIError {
-                name,
-                response: None,
-            },
-            KintoError::UnknownCollection { bucket, collection } => ClientError::APIError {
-                name: format!("Unknown collection {}/{}", bucket, collection),
-                response: None,
-            },
-        }
-    }
-}
-
-impl From<StorageError> for ClientError {
-    fn from(err: StorageError) -> Self {
-        match err {
-            StorageError::ReadError { name } => ClientError::StorageError { name },
-            StorageError::WriteError { name } => ClientError::StorageError { name },
-            StorageError::KeyNotFound { key } => ClientError::StorageError {
-                name: format!("{} not found", key),
-            },
-        }
-    }
-}
-
-impl From<SignatureError> for ClientError {
-    fn from(err: SignatureError) -> Self {
-        match err {
-            SignatureError::CertificateError { name } => ClientError::VerificationError { name },
-            SignatureError::VerificationError { name } => ClientError::VerificationError { name },
-            SignatureError::InvalidSignature { name } => ClientError::VerificationError { name },
-        }
-    }
+    #[error("content signature could not be verified: {0}")]
+    IntegrityError(#[from] SignatureError),
+    #[error("storage I/O error: {0}")]
+    StorageError(#[from] StorageError),
+    #[error("API failure: {0}")]
+    APIError(#[from] KintoError),
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -404,8 +358,8 @@ impl Client {
 
         debug!("Store collection with key={:?}", storage_key);
         let collection_bytes: Vec<u8> = serde_json::to_string(&collection)
-            .map_err(|err| StorageError::WriteError {
-                name: format!("Cannot serialize collection: {}", err),
+            .map_err(|err| {
+                StorageError::WriteError(format!("Cannot serialize collection: {}", err))
             })?
             .into();
         self.storage.store(&storage_key, collection_bytes)?;
@@ -436,7 +390,7 @@ fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -
 #[cfg(test)]
 mod tests {
     use super::signatures::{SignatureError, Verification};
-    use super::{Client, ClientError, Collection, MemoryStorage, Record};
+    use super::{Client, Collection, MemoryStorage, Record};
     use env_logger;
     use httpmock::MockServer;
     use serde_json::json;
@@ -450,9 +404,9 @@ mod tests {
 
     impl Verification for VerifierWithInvalidSignatureError {
         fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
-            return Err(SignatureError::InvalidSignature {
-                name: "invalid signature error from tests".to_owned(),
-            });
+            Err(SignatureError::MismatchError(
+                "fake invalid signature".to_owned(),
+            ))
         }
     }
 
@@ -546,10 +500,8 @@ mod tests {
 
         let err = client.get().unwrap_err();
         assert_eq!(
-            err,
-            ClientError::VerificationError {
-                name: "invalid signature error from tests".to_owned()
-            }
+            err.to_string(),
+            "content signature could not be verified: signature mismatch: fake invalid signature"
         );
     }
 
@@ -791,14 +743,8 @@ mod tests {
 
         let err = client.sync(None).unwrap_err();
         assert_eq!(
-            err,
-            ClientError::APIError {
-                name: format!(
-                    "Unknown collection {}/{}",
-                    "main", "url-classifier-skip-urls"
-                ),
-                response: None,
-            }
+            err.to_string(),
+            "API failure: unknown collection: main/url-classifier-skip-urls",
         );
 
         get_latest_change_mock.assert();
@@ -839,10 +785,8 @@ mod tests {
         let err = client.sync(42).unwrap_err();
 
         assert_eq!(
-            err,
-            ClientError::VerificationError {
-                name: "x5u field not present in signature".to_owned()
-            }
+            err.to_string(),
+            "content signature could not be verified: signature payload has no x5u field"
         );
 
         get_changeset_mock.assert();
@@ -878,10 +822,8 @@ mod tests {
 
         let err = client.sync(42).unwrap_err();
         assert_eq!(
-            err,
-            ClientError::VerificationError {
-                name: "invalid signature error from tests".to_owned()
-            }
+            err.to_string(),
+            "content signature could not be verified: signature mismatch: fake invalid signature"
         );
 
         get_changeset_mock.assert();
