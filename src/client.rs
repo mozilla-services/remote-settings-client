@@ -396,7 +396,7 @@ impl Client {
             &self.server_url,
             &self.bucket_name,
             &self.collection_name,
-            Some(remote_timestamp),
+            remote_timestamp,
             local_timestamp,
         )?;
 
@@ -452,7 +452,7 @@ fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -
 #[cfg(test)]
 mod tests {
     use super::signatures::{SignatureError, Verification};
-    use super::{Client, Collection, DummyStorage, MemoryStorage, Record};
+    use super::{Client, Collection, MemoryStorage, Record};
     use env_logger;
     use httpmock::MockServer;
     use serde_json::json;
@@ -462,14 +462,7 @@ mod tests {
     #[cfg(feature = "ring_verifier")]
     pub use crate::client::signatures::ring_verifier::RingVerifier;
 
-    struct VerifierWithNoError {}
     struct VerifierWithInvalidSignatureError {}
-
-    impl Verification for VerifierWithNoError {
-        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
-            Ok(())
-        }
-    }
 
     impl Verification for VerifierWithInvalidSignatureError {
         fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
@@ -569,7 +562,6 @@ mod tests {
             .server_url(&mock_server.url(""))
             .collection_name("regions")
             .storage(Box::new(MemoryStorage::new()))
-            .verifier(Box::new(VerifierWithNoError {}))
             .build();
 
         client.sync(42).unwrap();
@@ -605,7 +597,6 @@ mod tests {
             .server_url(&mock_server.url(""))
             .collection_name("blocklist")
             .storage(Box::new(MemoryStorage::new()))
-            .verifier(Box::new(VerifierWithNoError {}))
             .build();
 
         client.sync(123).unwrap();
@@ -660,8 +651,6 @@ mod tests {
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
             .collection_name("top-sites")
-            .storage(Box::new(DummyStorage {}))
-            .verifier(Box::new(VerifierWithNoError {}))
             .build();
 
         let records = client.get().unwrap();
@@ -714,7 +703,6 @@ mod tests {
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
             .collection_name("fxmonitor")
-            .verifier(Box::new(VerifierWithNoError {}))
             .build();
 
         client.sync(None).unwrap();
@@ -749,7 +737,6 @@ mod tests {
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
             .collection_name("pioneers")
-            .verifier(Box::new(VerifierWithNoError {}))
             .build();
 
         client.sync(13).unwrap();
@@ -902,7 +889,6 @@ mod tests {
             .server_url(&mock_server.url(""))
             .collection_name("onecrl")
             .storage(Box::new(MemoryStorage::new()))
-            .verifier(Box::new(VerifierWithNoError {}))
             .build();
 
         let res = client.sync(15).unwrap();

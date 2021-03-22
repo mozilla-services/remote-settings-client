@@ -70,9 +70,11 @@ impl std::fmt::Display for ErrorResponse {
     }
 }
 
-/// Fetches the current collection timestamp from the server.
 pub fn get_latest_change_timestamp(server: &str, bid: &str, cid: &str) -> Result<u64> {
-    let response = get_changeset(&server, "monitor", "changes", None, None)?;
+    // When we fetch the monitor/changes endpoint manually (ie. not from a push notification)
+    // we cannot know the current timestamp, and use 0 abritrarily.
+    let expected = 0;
+    let response = get_changeset(&server, "monitor", "changes", expected, None)?;
     let change = response
         .changes
         .iter()
@@ -99,14 +101,13 @@ pub fn get_changeset(
     server: &str,
     bid: &str,
     cid: &str,
-    expected: Option<u64>,
+    expected: u64,
     since: Option<u64>,
 ) -> Result<ChangesetResponse> {
-    let cache_bust = expected.unwrap_or(0);
     let since_param = since.map_or_else(String::new, |v| format!("&_since={}", v));
     let url = format!(
         "{}/buckets/{}/collections/{}/changeset?_expected={}{}",
-        server, bid, cid, cache_bust, since_param
+        server, bid, cid, expected, since_param
     );
     info!("Fetch {}...", url);
     let response = Request::get(Url::parse(&url)?).send()?;
@@ -289,7 +290,7 @@ mod tests {
 
         let mut get_changeset_mock = mock_server.mock(|when, then| {
             when.path("/buckets/main/collections/cfr/changeset")
-                .query_param("_expected", "0");
+                .query_param("_expected", "451");
             then.status(400).body(
                 r#"{
                     "code": 400,
@@ -304,11 +305,11 @@ mod tests {
             );
         });
 
-        let err = get_changeset(&mock_server_address, "main", "cfr", None, None).unwrap_err();
+        let err = get_changeset(&mock_server_address, "main", "cfr", 451, None).unwrap_err();
 
         match err {
             KintoError::ClientRequestError { ref info, .. } => {
-                assert_eq!(err.to_string(), format!("invalid request on GET {}/buckets/main/collections/cfr/changeset?_expected=0: HTTP 400 Bad request: Bad value \'0\' for \'_expected\' (#123)", mock_server.base_url()));
+                assert_eq!(err.to_string(), format!("invalid request on GET {}/buckets/main/collections/cfr/changeset?_expected=451: HTTP 400 Bad request: Bad value \'0\' for \'_expected\' (#123)", mock_server.base_url()));
                 assert_eq!(info.errno, 123);
                 assert_eq!(info.code, 400);
                 assert_eq!(info.error, "Bad request");
@@ -330,7 +331,7 @@ mod tests {
 
         let mut get_changeset_mock = mock_server.mock(|when, then| {
             when.path("/buckets/main/collections/cfr/changeset")
-                .query_param("_expected", "0");
+                .query_param("_expected", "42");
             then.status(503).header("Retry-After", "360").body(
                 r#"{
                     "code": 503,
@@ -341,7 +342,7 @@ mod tests {
             );
         });
 
-        let err = get_changeset(&mock_server_address, "main", "cfr", None, None).unwrap_err();
+        let err = get_changeset(&mock_server_address, "main", "cfr", 42, None).unwrap_err();
 
         match err {
             KintoError::ServerError {
@@ -349,7 +350,7 @@ mod tests {
                 ref info,
                 ..
             } => {
-                assert_eq!(err.to_string(), format!("a server error occured on GET {}/buckets/main/collections/cfr/changeset?_expected=0: HTTP 503 Service unavailable: Boom (#999)", mock_server.base_url()));
+                assert_eq!(err.to_string(), format!("a server error occured on GET {}/buckets/main/collections/cfr/changeset?_expected=42: HTTP 503 Service unavailable: Boom (#999)", mock_server.base_url()));
                 assert_eq!(retry_after, Some(360));
                 assert_eq!(info.errno, 999);
                 assert_eq!(info.code, 503);
