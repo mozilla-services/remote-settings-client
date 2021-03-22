@@ -189,7 +189,7 @@ mod tests {
                         }
                     ],
                     "timestamp": 42
-                }"#
+                }"#,
             );
         });
 
@@ -226,7 +226,7 @@ mod tests {
             then.body(
                 r#"{
                     "met :
-                }"#
+                }"#,
             );
         });
 
