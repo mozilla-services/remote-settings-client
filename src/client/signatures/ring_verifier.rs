@@ -5,7 +5,18 @@
 use super::x509;
 use super::{Collection, SignatureError, Verification};
 use log::debug;
+use ring::digest::{Context, SHA256};
 use ring::signature;
+
+use oid_registry;
+use x509_parser::time::ASN1Time;
+
+macro_rules! hex {
+    ($b: expr) => {{
+        let ss: Vec<String> = $b.iter().map(|b| format!("{:02X}", b)).collect();
+        ss.join(":")
+    }};
+}
 
 pub struct RingVerifier {}
 
@@ -29,7 +40,53 @@ impl Verification for RingVerifier {
             })
             .collect::<Result<Vec<x509::X509Certificate>, _>>()?;
 
+        let root_pem = pems.first().unwrap();
+
+        // Verify root hash: hex fingerprint of DER content.
+        let mut context = Context::new(&SHA256);
+        context.update(&root_pem.contents);
+        let root_fingerprint = hex!(context.finish().as_ref());
+        if root_fingerprint != root_hash {
+            return Err(SignatureError::CertificateHasWrongRoot(root_fingerprint));
+        }
+
         let leaf_cert = certs.last().unwrap(); // PEM parse fails if len == 0.
+
+        // Check certificate validity.
+        // TODO: take clock skew into account
+        // TODO: mock from tests
+        let now = ASN1Time::now();
+        if !leaf_cert.tbs_certificate.validity.is_valid_at(now) {
+            return Err(SignatureError::CertificateExpired);
+        }
+
+        // Verify signature chain.
+        for pair in certs.windows(2) {
+            if let [parent, child] = pair {
+                let signature_alg = &child.signature_algorithm.algorithm;
+                let verification_alg: &dyn signature::VerificationAlgorithm =
+                    if *signature_alg == oid_registry::OID_PKCS1_SHA1WITHRSA {
+                        &signature::RSA_PKCS1_1024_8192_SHA1_FOR_LEGACY_USE_ONLY
+                    } else if *signature_alg == oid_registry::OID_PKCS1_SHA256WITHRSA {
+                        &signature::RSA_PKCS1_2048_8192_SHA256
+                    } else if *signature_alg == oid_registry::OID_PKCS1_SHA384WITHRSA {
+                        &signature::RSA_PKCS1_2048_8192_SHA384
+                    } else if *signature_alg == oid_registry::OID_PKCS1_SHA512WITHRSA {
+                        &signature::RSA_PKCS1_2048_8192_SHA512
+                    } else if *signature_alg == oid_registry::OID_SIG_ECDSA_WITH_SHA256 {
+                        &signature::ECDSA_P256_SHA256_ASN1
+                    } else if *signature_alg == oid_registry::OID_SIG_ECDSA_WITH_SHA384 {
+                        &signature::ECDSA_P384_SHA384_ASN1
+                    } else {
+                        return Err(SignatureError::UnsupportedSignatureAlgorithm);
+                    };
+                let parent_pk_bytes = parent.tbs_certificate.subject_pki.subject_public_key.data;
+                let parent_pk = signature::UnparsedPublicKey::new(verification_alg, &parent_pk_bytes);
+                let child_sig_bytes = child.signature_value.data;
+                parent_pk.verify(child.tbs_certificate.as_ref(), child_sig_bytes)
+                    .or(Err(SignatureError::CertificateTrustError))?;
+            }
+        }
 
         // Extract SubjectPublicKeyInfo of leaf certificate.
         let public_key_bytes = leaf_cert

@@ -20,6 +20,7 @@ pub enum X509Error {
 }
 
 pub fn parse_certificate_chain(pem_bytes: &[u8]) -> Result<Vec<Pem>, X509Error> {
+    // ``openssl x509 -inform PEM -in cert.pem -text``
     let blocks = split_pem(pem_bytes);
 
     let pems: Vec<Pem> = blocks
