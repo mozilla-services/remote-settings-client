@@ -30,6 +30,7 @@ use crate::client::signatures::dummy_verifier::DummyVerifier;
 
 pub const DEFAULT_SERVER_URL: &str = "https://firefox.settings.services.mozilla.com/v1";
 pub const DEFAULT_BUCKET_NAME: &str = "main";
+pub const PROD_CERT_ROOT_HASH: &str = "97:E8:BA:9C:F1:2F:B3:DE:53:CC:42:A4:E6:57:7E:D6:4D:F4:93:C2:47:B4:14:FE:A0:36:81:8D:38:23:56:0E";
 
 #[derive(Debug, Error)]
 pub enum ClientError {
@@ -197,6 +198,8 @@ pub struct Client {
     trust_local: bool,
     #[builder(private, default = "None")]
     backoff_until: Option<Instant>,
+    #[builder(default = "PROD_CERT_ROOT_HASH.to_owned()")]
+    cert_root_hash: String,
 }
 
 impl Default for Client {
@@ -272,7 +275,7 @@ impl Client {
                 // Verify signature of stored data (*optional*)
                 if !self.trust_local {
                     debug!("Verify signature of local data.");
-                    self.verifier.verify(&stored)?;
+                    self.verifier.verify(&stored, &self.cert_root_hash)?;
                 }
 
                 Ok(stored.records)
@@ -322,7 +325,12 @@ impl Client {
 
         if let Some(ref collection) = stored {
             let up_to_date = collection.timestamp == remote_timestamp;
-            if up_to_date && self.verifier.verify(&collection).is_ok() {
+            if up_to_date
+                && self
+                    .verifier
+                    .verify(&collection, &self.cert_root_hash)
+                    .is_ok()
+            {
                 debug!("Local data is up-to-date and valid.");
                 return Ok(stored.unwrap());
             }
@@ -364,7 +372,7 @@ impl Client {
         };
 
         debug!("Verify signature after merge of changes with previous local data.");
-        self.verifier.verify(&collection)?;
+        self.verifier.verify(&collection, &self.cert_root_hash)?;
 
         debug!("Store collection with key={:?}", storage_key);
         let collection_bytes: Vec<u8> = serde_json::to_string(&collection)
@@ -427,7 +435,7 @@ mod tests {
     struct VerifierWithInvalidSignatureError {}
 
     impl Verification for VerifierWithInvalidSignatureError {
-        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
+        fn verify(&self, _collection: &Collection, _: &str) -> Result<(), SignatureError> {
             Err(SignatureError::MismatchError(
                 "fake invalid signature".to_owned(),
             ))
@@ -459,7 +467,7 @@ mod tests {
         assert_eq!(client.sync_if_empty, true);
         assert_eq!(client.trust_local, true);
         // And Debug format
-        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, backoff_until: None }");
+        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, backoff_until: None, cert_root_hash: \"97:E8:BA:9C:F1:2F:B3:DE:53:CC:42:A4:E6:57:7E:D6:4D:F4:93:C2:47:B4:14:FE:A0:36:81:8D:38:23:56:0E\" }");
     }
 
     #[test]

@@ -33,7 +33,7 @@ use thiserror::Error;
 /// struct SignatureVerifier {}
 ///
 /// impl Verification for SignatureVerifier {
-///     fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
+///     fn verify(&self, collection: &Collection, root_hash: &str) -> Result<(), SignatureError> {
 ///         Ok(())
 ///     }
 /// }
@@ -89,7 +89,7 @@ pub trait Verification {
     ///
     /// If errors occur during certificate download, parsing, or data serialization, then
     /// the corresponding error is returned.
-    fn verify(&self, collection: &Collection) -> Result<(), SignatureError>;
+    fn verify(&self, collection: &Collection, root_hash: &str) -> Result<(), SignatureError>;
 }
 
 #[derive(Debug, Error)]
@@ -144,11 +144,13 @@ mod tests {
         #[cfg(feature = "rc_crypto_verifier")]
         verifiers.push(Box::new(super::rc_crypto_verifier::RcCryptoVerifier {}));
 
+        let root_hash = "3C:01:44:6A:BE:90:36:CE:A9:A0:9A:CA:A3:A5:20:AC:62:8F:20:A7:AE:32:CE:86:1C:B2:EF:B7:0F:A0:C7:45";
+
         for verifier in &verifiers {
             if should_fail {
-                assert!(verifier.verify(&collection).is_err())
+                verifier.verify(&collection, root_hash).unwrap_err();
             } else {
-                assert!(verifier.verify(&collection).is_ok());
+                verifier.verify(&collection, root_hash).unwrap();
             }
         }
 

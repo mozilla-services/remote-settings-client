@@ -12,7 +12,7 @@ pub struct RingVerifier {}
 impl RingVerifier {}
 
 impl Verification for RingVerifier {
-    fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
+    fn verify(&self, collection: &Collection, root_hash: &str) -> Result<(), SignatureError> {
         debug!("Verifying using x509-parser and ring");
 
         // Get public key from certificate (PEM from `x5u` field).

@@ -23,7 +23,7 @@ pub struct LatestChangeEntry {
 }
 
 impl Verification for CustomVerifier {
-    fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
+    fn verify(&self, _collection: &Collection, _root_hash: &str) -> Result<(), SignatureError> {
         Ok(()) // everything is verified!
     }
 }

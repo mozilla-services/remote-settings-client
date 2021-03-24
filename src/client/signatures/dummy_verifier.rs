@@ -8,7 +8,7 @@ use log::debug;
 pub struct DummyVerifier {}
 
 impl Verification for DummyVerifier {
-    fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
+    fn verify(&self, _collection: &Collection, _: &str) -> Result<(), SignatureError> {
         debug!("default verifier implementation");
         Ok(())
     }

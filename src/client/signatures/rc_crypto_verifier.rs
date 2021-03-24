@@ -12,7 +12,7 @@ pub struct RcCryptoVerifier {}
 impl RcCryptoVerifier {}
 
 impl Verification for RcCryptoVerifier {
-    fn verify(&self, collection: &Collection) -> Result<(), SignatureError> {
+    fn verify(&self, collection: &Collection, root_hash: &str) -> Result<(), SignatureError> {
         debug!("Verifying using x509-parser and rc_crypto");
 
         // Get public key from certificate (PEM from `x5u` field).
