@@ -7,7 +7,6 @@ mod signatures;
 mod storage;
 
 use log::{debug, info};
-use std::cell::Cell;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -196,17 +195,8 @@ pub struct Client {
     sync_if_empty: bool,
     #[builder(default = "true")]
     trust_local: bool,
-    #[builder(private, default = "Cell::new(SyncState::Ok)")]
-    sync_state: Cell<SyncState>,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum SyncState {
-    Ok,
-    Backoff {
-        observed_at: Instant,
-        duration: Duration,
-    },
+    #[builder(private, default = "None")]
+    backoff_until: Option<Instant>,
 }
 
 impl Default for Client {
@@ -355,10 +345,7 @@ impl Client {
         // Keep in state that the server indicated the client
         // to backoff for a while.
         if let Some(backoff_secs) = changeset.backoff {
-            self.sync_state.replace(SyncState::Backoff {
-                observed_at: Instant::now(),
-                duration: Duration::from_secs(backoff_secs),
-            });
+            self.backoff_until = Some(Instant::now() + Duration::from_secs(backoff_secs));
         }
 
         debug!(
@@ -391,17 +378,12 @@ impl Client {
     }
 
     fn check_sync_state(&mut self) -> Result<(), ClientError> {
-        if let SyncState::Backoff {
-            observed_at,
-            duration,
-        } = self.sync_state.get()
-        {
-            let elapsed_time = observed_at.elapsed();
-            if elapsed_time >= duration {
-                self.sync_state.replace(SyncState::Ok);
+        if let Some(until) = self.backoff_until {
+            let remaining_secs = (until - Instant::now()).as_secs();
+            if remaining_secs <= 0 {
+                self.backoff_until = None;
             } else {
-                let remaining = duration - elapsed_time;
-                return Err(ClientError::BackoffError(remaining.as_secs()));
+                return Err(ClientError::BackoffError(remaining_secs));
             }
         }
         Ok(())
@@ -477,7 +459,7 @@ mod tests {
         assert_eq!(client.sync_if_empty, true);
         assert_eq!(client.trust_local, true);
         // And Debug format
-        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, sync_state: Cell { value: Ok } }");
+        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, backoff_until: None }");
     }
 
     #[test]
