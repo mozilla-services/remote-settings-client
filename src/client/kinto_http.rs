@@ -20,6 +20,7 @@ pub struct ChangesetResponse {
     pub metadata: KintoObject,
     pub changes: Vec<KintoObject>,
     pub timestamp: u64,
+    pub backoff: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
@@ -142,7 +143,12 @@ pub fn get_changeset(
         .map_or_else(|| -1, |v| v.parse().unwrap_or(-1));
 
     debug!("Download {:?} bytes...", size);
-    Ok(response.json::<ChangesetResponse>()?)
+    let mut changeset: ChangesetResponse = response.json()?;
+
+    // Check if server is indicating to clients to back-off.
+    changeset.backoff = response.headers.get("backoff").and_then(|v| v.parse().ok());
+
+    Ok(changeset)
 }
 
 #[cfg(test)]

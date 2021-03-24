@@ -7,8 +7,10 @@ mod signatures;
 mod storage;
 
 use log::{debug, info};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject};
@@ -37,6 +39,8 @@ pub enum ClientError {
     StorageError(#[from] StorageError),
     #[error("API failure: {0}")]
     APIError(#[from] KintoError),
+    #[error("server indicated client to backoff ({0} secs remaining)")]
+    BackoffError(u64),
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -191,6 +195,8 @@ pub struct Client {
     sync_if_empty: bool,
     #[builder(default = "true")]
     trust_local: bool,
+    #[builder(private, default = "None")]
+    backoff_until: Option<Instant>,
 }
 
 impl Default for Client {
@@ -294,6 +300,8 @@ impl Client {
     where
         T: Into<Option<u64>>,
     {
+        self.check_sync_state()?;
+
         let storage_key = self._storage_key();
 
         debug!("Retrieve from storage with key={:?}", storage_key);
@@ -334,6 +342,12 @@ impl Client {
             local_timestamp,
         )?;
 
+        // Keep in state that the server indicated the client
+        // to backoff for a while.
+        if let Some(backoff_secs) = changeset.backoff {
+            self.backoff_until = Some(Instant::now() + Duration::from_secs(backoff_secs));
+        }
+
         debug!(
             "Apply {} changes to {} local records",
             changeset.changes.len(),
@@ -362,6 +376,18 @@ impl Client {
 
         Ok(collection)
     }
+
+    fn check_sync_state(&mut self) -> Result<(), ClientError> {
+        if let Some(until) = self.backoff_until {
+            let remaining_secs = (until - Instant::now()).as_secs();
+            if remaining_secs <= 0 {
+                self.backoff_until = None;
+            } else {
+                return Err(ClientError::BackoffError(remaining_secs));
+            }
+        }
+        Ok(())
+    }
 }
 
 fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -> Vec<Record> {
@@ -386,7 +412,9 @@ fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -
 #[cfg(test)]
 mod tests {
     use super::signatures::{SignatureError, Verification};
-    use super::{Client, Collection, DummyStorage, DummyVerifier, MemoryStorage, Record};
+    use super::{
+        Client, ClientError, Collection, DummyStorage, DummyVerifier, MemoryStorage, Record,
+    };
     use env_logger;
     use httpmock::MockServer;
     use serde_json::json;
@@ -431,7 +459,7 @@ mod tests {
         assert_eq!(client.sync_if_empty, true);
         assert_eq!(client.trust_local, true);
         // And Debug format
-        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true }");
+        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, backoff_until: None }");
     }
 
     #[test]
@@ -1026,5 +1054,38 @@ mod tests {
             "deleted": "foo"
         }));
         assert_eq!(r.deleted(), false);
+    }
+
+    #[test]
+    fn test_backoff() {
+        init();
+
+        let mock_server = MockServer::start();
+        let mut get_changeset_mock = mock_server.mock(|when, then| {
+            when.path("/buckets/main/collections/nimbus/changeset")
+                .query_param("_expected", "777");
+            then.header("Backoff", "300").body(
+                r#"{
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 777
+                    }],
+                    "timestamp": 777
+                }"#,
+            );
+        });
+        let mut client = Client::builder()
+            .server_url(mock_server.url(""))
+            .collection_name("nimbus")
+            .build()
+            .unwrap();
+
+        client.sync(777).unwrap();
+        let second_sync = client.sync(888).unwrap_err();
+
+        assert!(matches!(second_sync, ClientError::BackoffError(_)));
+        get_changeset_mock.assert();
+        get_changeset_mock.delete();
     }
 }
