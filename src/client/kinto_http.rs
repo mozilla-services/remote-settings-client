@@ -146,10 +146,7 @@ pub fn get_changeset(
     let mut changeset: ChangesetResponse = response.json()?;
 
     // Check if server is indicating to clients to back-off.
-    changeset.backoff = response
-        .headers
-        .get("backoff")
-        .map_or_else(|| None, |v| v.parse().ok());
+    changeset.backoff = response.headers.get("backoff").and_then(|v| v.parse().ok());
 
     Ok(changeset)
 }
