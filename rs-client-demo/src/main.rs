@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use remote_settings_client::{Client, Collection, SignatureError, Verification};
-use remote_settings_client::client::FileStorage;
+use remote_settings_client::client::{FileStorage, RingVerifier};
 use serde::Deserialize;
 pub use url::{ParseError, Url};
 use viaduct::{set_backend, Request};
@@ -71,6 +71,7 @@ fn main() {
             .bucket_name(&collection.bucket)
             .collection_name(&collection.collection)
             .storage(Box::new(FileStorage { folder: "/tmp".into(), ..FileStorage::default() }))
+            .verifier(Box::new(RingVerifier {}))
             .build()
             .unwrap();
 
