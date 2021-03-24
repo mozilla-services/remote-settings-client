@@ -16,9 +16,27 @@ impl Verification for RingVerifier {
         debug!("Verifying using x509-parser and ring");
 
         // Get public key from certificate (PEM from `x5u` field).
+        // TODO: read server time from headers to compute clock skew
         let pem_bytes = self.fetch_certificate_chain(&collection)?;
 
-        let public_key_bytes = x509::extract_public_key(pem_bytes)?;
+        let pems = x509::parse_certificate_chain(&pem_bytes)?;
+
+        let certs: Vec<x509::X509Certificate> = pems
+            .iter()
+            .map(|pem| match x509::parse_x509_certificate(&pem) {
+                Ok(cert) => Ok(cert),
+                Err(e) => Err(e),
+            })
+            .collect::<Result<Vec<x509::X509Certificate>, _>>()?;
+
+        let leaf_cert = certs.last().unwrap(); // PEM parse fails if len == 0.
+
+        // Extract SubjectPublicKeyInfo of leaf certificate.
+        let public_key_bytes = leaf_cert
+            .tbs_certificate
+            .subject_pki
+            .subject_public_key
+            .data;
         let public_key = signature::UnparsedPublicKey::new(
             &signature::ECDSA_P384_SHA384_FIXED,
             &public_key_bytes,
