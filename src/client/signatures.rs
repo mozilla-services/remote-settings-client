@@ -115,20 +115,13 @@ pub enum SignatureError {
 
 #[cfg(test)]
 mod tests {
+    use super::dummy_verifier::DummyVerifier;
     use crate::{Collection, Record, SignatureError, Verification};
     use env_logger;
     use httpmock::MockServer;
     use serde_json::json;
     use viaduct::set_backend;
     use viaduct_reqwest::ReqwestBackend;
-
-    struct BasicVerifier {}
-
-    impl Verification for BasicVerifier {
-        fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
-            Ok(())
-        }
-    }
 
     fn verify_signature(
         mock_server: &MockServer,
@@ -169,7 +162,7 @@ mod tests {
 
     #[test]
     fn test_missing_x5u() {
-        let verifier = BasicVerifier {};
+        let verifier = DummyVerifier {};
         let collection = Collection {
             bid: "".to_string(),
             cid: "".to_string(),
@@ -186,7 +179,7 @@ mod tests {
 
     #[test]
     fn test_bad_x5u_urls() {
-        let verifier = BasicVerifier {};
+        let verifier = DummyVerifier {};
 
         let _ = set_backend(&ReqwestBackend);
         let mock_server = MockServer::start();
