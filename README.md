@@ -45,7 +45,7 @@ See also our [demo project](rs-client-demo)!
 
 ## Documentation
 
-[Crate documentation](https://docs.rs/remote_settings_client)
+[Crate documentation](https://leplatrem.github.io/remote-settings-client/)
 
 ## Logging
 
