@@ -10,7 +10,7 @@ pub use x509_parser::certificate::X509Certificate;
 #[derive(Debug, Error)]
 pub enum X509Error {
     #[error("PEM content could not be parsed: {0}")]
-    PEMError(#[from] NomErr<x509_errors::PEMError>),
+    PEMError(#[from] x509_errors::PEMError),
     #[error("X509 content could not be parsed: {0}")]
     X509Error(#[from] NomErr<x509_errors::X509Error>),
     #[error("PEM is not a certificate: {0}")]
@@ -21,20 +21,20 @@ pub enum X509Error {
 
 pub fn parse_certificate_chain(pem_bytes: &[u8]) -> Result<Vec<Pem>, X509Error> {
     // ``openssl x509 -inform PEM -in cert.pem -text``
-    let blocks = split_pem(pem_bytes);
-
-    let pems: Vec<Pem> = blocks
-        .iter()
-        .rev() // first will be root, last will be leaf.
-        .map(|block| {
-            let (_, pem) = x509_parser::pem::parse_x509_pem(&block)?;
-
-            if pem.label != "CERTIFICATE" {
-                return Err(X509Error::WrongPEMType(pem.label));
+    let pems: Vec<Pem> = Pem::iter_from_buffer(&pem_bytes)
+        .map(|res| match res {
+            Ok(pem) => {
+                if pem.label != "CERTIFICATE" {
+                    return Err(X509Error::WrongPEMType(pem.label));
+                }
+                Ok(pem)
             }
-            Ok(pem)
+            Err(e) => return Err(e.into()),
         })
-        .collect::<Result<Vec<Pem>, _>>()?;
+        .collect::<Result<Vec<Pem>, _>>()?
+        .into_iter()
+        .rev() // first will be root, last will be leaf.
+        .collect();
 
     if pems.len() == 0 {
         return Err(X509Error::EmptyPEM);
@@ -48,32 +48,6 @@ pub fn parse_x509_certificate<'a>(pem: &'a Pem) -> Result<X509Certificate<'a>, X
     Ok(cert)
 }
 
-fn split_pem(pem_content: &[u8]) -> Vec<&[u8]> {
-    let mut blocks = vec![];
-
-    let needle = b"-----BEGIN CERTIFICATE";
-    let window = needle.len();
-    let mut last = 0;
-    if pem_content.len() > window {
-        let mut i = 0;
-        while i < pem_content.len() - window - 1 {
-            let portion = &pem_content[i..i + window];
-            if portion == needle && i > last {
-                blocks.push(&pem_content[last..i]);
-                last = i;
-                i = i + window;
-            } else {
-                i = i + 1;
-            }
-        }
-    }
-    if last < pem_content.len() {
-        blocks.push(&pem_content[last..]);
-    }
-
-    blocks
-}
-
 #[cfg(test)]
 mod tests {
     use super::parse_certificate_chain;
@@ -82,11 +56,8 @@ mod tests {
     fn test_bad_pem_content() {
         let expectations: Vec<(&str, &str)> = vec![
             ("", "no certificate was found in PEM"),
-            ("1", "PEM content could not be parsed: Parsing Error: MissingHeader"),
-            (
-                "%^",
-                "PEM content could not be parsed: Parsing Error: MissingHeader",
-            ),
+            ("1", "no certificate was found in PEM"),
+            ("%^", "no certificate was found in PEM"),
             (
                 "\
 -----BEGIN ENCRYPTED PRIVATE KEY-----
@@ -99,7 +70,14 @@ bGxhIEFNTyBQcm9kdWN0aW9uIFNpZ25pbmcgU2VydmljZTFFMEMGA1UEAww8Q29u
 -----BEGIN CERTIFICATE-----
 invalidCertificate
 -----END CERTIFICATE-----",
-                "PEM content could not be parsed: Parsing Error: Base64DecodeError",
+                "PEM content could not be parsed: base64 decode error",
+            ),
+            (
+                "\
+-----BEGIN CERTIFICATE-----
+bGxhIEFNTyBQcm9kdWN0aW9uIFNp
+-----BEGIN CERTIFICATE-----",
+                "PEM content could not be parsed: incomplete PEM",
             ),
         ];
 
