@@ -180,7 +180,7 @@ mod tests {
         let err = verifier.fetch_certificate_chain(&collection).unwrap_err();
         match err {
             SignatureError::MissingSignatureField() => assert!(true),
-            e => assert!(false, format!("Unexpected error type: {:?}", e)),
+            e => assert!(false, "Unexpected error type: {:?}", e),
         };
     }
 
@@ -218,7 +218,7 @@ mod tests {
                 timestamp: 0,
             };
             let err = verifier.fetch_certificate_chain(&collection).unwrap_err();
-            assert!(err.to_string().contains(error), err.to_string());
+            assert!(err.to_string().contains(error), "{}", err.to_string());
         }
 
         pem_mock.delete();

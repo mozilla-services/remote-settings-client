@@ -453,6 +453,7 @@ mod tests {
         // Assert defaults for consumers.
         assert!(
             client.server_url.contains("services.mozilla.com"),
+            "Unexpected server URL: {}",
             client.server_url
         );
         assert_eq!(client.bucket_name, "main");
