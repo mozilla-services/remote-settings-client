@@ -8,7 +8,13 @@ mod storage;
 
 use log::{debug, info};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+#[cfg(test)]
+use mock_instant::Instant;
+
+#[cfg(not(test))]
+use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -379,12 +385,11 @@ impl Client {
 
     fn check_sync_state(&mut self) -> Result<(), ClientError> {
         if let Some(until) = self.backoff_until {
-            let remaining_secs = (until - Instant::now()).as_secs();
-            if remaining_secs <= 0 {
-                self.backoff_until = None;
-            } else {
+            if Instant::now() < until {
+                let remaining_secs = (until - Instant::now()).as_secs();
                 return Err(ClientError::BackoffError(remaining_secs));
             }
+            self.backoff_until = None;
         }
         Ok(())
     }
@@ -408,7 +413,6 @@ fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -
 
     local_by_id.into_iter().map(|(_, v)| v).collect()
 }
-
 #[cfg(test)]
 mod tests {
     use super::signatures::{SignatureError, Verification};
@@ -418,6 +422,7 @@ mod tests {
     use env_logger;
     use httpmock::MockServer;
     use serde_json::json;
+    use std::time::Duration;
     use viaduct::set_backend;
     use viaduct_reqwest::ReqwestBackend;
 
@@ -1062,20 +1067,25 @@ mod tests {
         init();
 
         let mock_server = MockServer::start();
-        let mut get_changeset_mock = mock_server.mock(|when, then| {
-            when.path("/buckets/main/collections/nimbus/changeset")
-                .query_param("_expected", "777");
-            then.header("Backoff", "300").body(
-                r#"{
-                    "metadata": {},
-                    "changes": [{
-                        "id": "record-1",
-                        "last_modified": 777
-                    }],
-                    "timestamp": 777
-                }"#,
-            );
-        });
+        let get_changeset_mocks: Vec<_> = [777, 888]
+            .iter()
+            .map(|&expected| {
+                mock_server.mock(|when, then| {
+                    when.path("/buckets/main/collections/nimbus/changeset")
+                        .query_param("_expected".into(), format!("{}", expected));
+                    then.header("Backoff", "300").json_body(json!(
+                        {
+                            "metadata": {},
+                            "changes": [{
+                                "id": "record-1",
+                                "last_modified": expected
+                            }],
+                            "timestamp": expected
+                        }
+                    ));
+                })
+            })
+            .collect();
         let mut client = Client::builder()
             .server_url(mock_server.url(""))
             .collection_name("nimbus")
@@ -1084,9 +1094,13 @@ mod tests {
 
         client.sync(777).unwrap();
         let second_sync = client.sync(888).unwrap_err();
+        mock_instant::MockClock::advance(Duration::from_secs(600));
+        client.sync(888).unwrap();
 
         assert!(matches!(second_sync, ClientError::BackoffError(_)));
-        get_changeset_mock.assert();
-        get_changeset_mock.delete();
+        for mut mock in get_changeset_mocks {
+            mock.assert();
+            mock.delete();
+        }
     }
 }
