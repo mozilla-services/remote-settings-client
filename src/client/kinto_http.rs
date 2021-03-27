@@ -367,8 +367,10 @@ mod tests {
 
         let mut redirects_mock = mock_server.mock(|when, then| {
             when.path("/buckets/monitor/collections/changes/changeset");
-            then.status(302)
-                .header("Location", "/v2/buckets/monitor/collections/changes/changeset");
+            then.status(302).header(
+                "Location",
+                "/v2/buckets/monitor/collections/changes/changeset",
+            );
         });
 
         let mut changeset_mock = mock_server.mock(|when, then| {
@@ -389,9 +391,7 @@ mod tests {
             );
         });
 
-        let res =
-            get_latest_change_timestamp(&mock_server.url(""), "main", "crlite")
-                .unwrap();
+        let res = get_latest_change_timestamp(&mock_server.url(""), "main", "crlite").unwrap();
 
         assert_eq!(res, 5678);
 
