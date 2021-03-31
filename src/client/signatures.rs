@@ -10,7 +10,6 @@ pub mod ring_verifier;
 #[cfg(feature = "rc_crypto_verifier")]
 pub mod rc_crypto_verifier;
 
-#[cfg(any(feature = "ring_verifier", feature = "rc_crypto_verifier"))]
 pub mod x509;
 
 use crate::client::Collection;
@@ -20,6 +19,29 @@ use url::{ParseError as URLParseError, Url};
 use viaduct::{Error as ViaductError, Request, Response};
 
 use thiserror::Error;
+use x509_parser::time::ASN1Time;
+
+macro_rules! hex {
+    ($b: expr) => {{
+        let ss: Vec<String> = $b.iter().map(|b| format!("{:02X}", b)).collect();
+        ss.join(":")
+    }};
+}
+
+#[allow(non_camel_case_types)]
+pub enum VerificationAlgorithm {
+    ECDSA_P256_SHA256_ASN1,
+    ECDSA_P256_SHA256_FIXED,
+    ECDSA_P384_SHA384_ASN1,
+    ECDSA_P384_SHA384_FIXED,
+    RSA_SHA256,
+    RSA_SHA384,
+    RSA_SHA512,
+}
+
+pub enum HashAlgorithm {
+    SHA256,
+}
 
 /// A trait for signature verification of collection data.
 ///
@@ -27,13 +49,16 @@ use thiserror::Error;
 ///
 /// # How can I implement ```Verification```?
 /// ```rust
-/// # use remote_settings_client::{SignatureError, Verification};
-/// # use remote_settings_client::{Client, Collection};
+/// # use remote_settings_client::client::{Client, Collection, HashAlgorithm, SignatureError, Verification, VerificationAlgorithm};
 ///
 /// struct SignatureVerifier {}
 ///
 /// impl Verification for SignatureVerifier {
-///     fn verify(&self, collection: &Collection, root_hash: &str) -> Result<(), SignatureError> {
+///     fn hash(&self, input: &[u8], algorithm: HashAlgorithm) -> Result<Vec<u8>, SignatureError> {
+///         Ok(vec!())
+///     }
+///     
+///     fn verify_message(&self, message: &[u8], key: &[u8], signature: &[u8], algorithm: VerificationAlgorithm) -> Result<(), SignatureError> {
 ///         Ok(())
 ///     }
 /// }
@@ -46,6 +71,16 @@ use thiserror::Error;
 /// # }
 /// ```
 pub trait Verification {
+    fn hash(&self, input: &[u8], algorithm: HashAlgorithm) -> Result<Vec<u8>, SignatureError>;
+
+    fn verify_message(
+        &self,
+        message: &[u8],
+        key: &[u8],
+        signature: &[u8],
+        algorithm: VerificationAlgorithm,
+    ) -> Result<(), SignatureError>;
+
     fn fetch_certificate_chain(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
         // Fetch certificate PEM (public key).
         let x5u = collection.metadata["signature"]["x5u"]
@@ -81,6 +116,41 @@ pub trait Verification {
         Ok(data.as_bytes().to_vec())
     }
 
+    fn verify_chain(&self, certs: Vec<&x509::X509Certificate>) -> Result<(), SignatureError> {
+        // Verify signature chain.
+        for pair in certs.windows(2) {
+            if let [parent, child] = pair {
+                let signature_alg = &child.signature_algorithm.algorithm;
+                let verification_alg = if *signature_alg == oid_registry::OID_PKCS1_SHA256WITHRSA {
+                    VerificationAlgorithm::RSA_SHA256
+                } else if *signature_alg == oid_registry::OID_PKCS1_SHA384WITHRSA {
+                    VerificationAlgorithm::RSA_SHA384
+                } else if *signature_alg == oid_registry::OID_PKCS1_SHA512WITHRSA {
+                    VerificationAlgorithm::RSA_SHA512
+                } else if *signature_alg == oid_registry::OID_SIG_ECDSA_WITH_SHA256 {
+                    VerificationAlgorithm::ECDSA_P256_SHA256_ASN1
+                } else if *signature_alg == oid_registry::OID_SIG_ECDSA_WITH_SHA384 {
+                    VerificationAlgorithm::ECDSA_P384_SHA384_ASN1
+                } else {
+                    return Err(SignatureError::UnsupportedSignatureAlgorithm);
+                };
+
+                let parent_pk_bytes = parent.tbs_certificate.subject_pki.subject_public_key.data;
+                let child_der_bytes = child.tbs_certificate.as_ref();
+                let child_sig_bytes = child.signature_value.data;
+
+                self.verify_message(
+                    child_der_bytes,
+                    parent_pk_bytes,
+                    child_sig_bytes,
+                    verification_alg,
+                )
+                .or(Err(SignatureError::CertificateTrustError))?;
+            }
+        }
+        Ok(())
+    }
+
     /// Verifies signature for a given ```Collection``` struct
     ///
     /// # Errors
@@ -89,7 +159,63 @@ pub trait Verification {
     ///
     /// If errors occur during certificate download, parsing, or data serialization, then
     /// the corresponding error is returned.
-    fn verify(&self, collection: &Collection, root_hash: &str) -> Result<(), SignatureError>;
+    fn verify(&self, collection: &Collection, root_hash: &str) -> Result<(), SignatureError> {
+        // Get public key from certificate (PEM from `x5u` field).
+        // TODO: read server time from headers to compute clock skew
+        let pem_bytes = self.fetch_certificate_chain(&collection)?;
+
+        let pems = x509::parse_certificate_chain(&pem_bytes)?;
+
+        let certs: Vec<x509::X509Certificate> = pems
+            .iter()
+            .map(|pem| match x509::parse_x509_certificate(&pem) {
+                Ok(cert) => Ok(cert),
+                Err(e) => Err(e),
+            })
+            .collect::<Result<Vec<x509::X509Certificate>, _>>()?;
+
+        let root_pem = pems.first().unwrap();
+
+        // Verify root hash: hex fingerprint of DER content.
+        let root_fingerprint_bytes = self.hash(&root_pem.contents, HashAlgorithm::SHA256)?;
+        let root_fingerprint = hex!(root_fingerprint_bytes);
+        if root_fingerprint != root_hash {
+            return Err(SignatureError::CertificateHasWrongRoot(root_fingerprint));
+        }
+
+        let leaf_cert = certs.last().unwrap(); // PEM parse fails if len == 0.
+
+        // Check certificate validity.
+        // TODO: take clock skew into account
+        // TODO: mock from tests
+        let now = ASN1Time::now();
+        if !leaf_cert.tbs_certificate.validity.is_valid_at(now) {
+            return Err(SignatureError::CertificateExpired);
+        }
+
+        // Check chain of trust.
+        self.verify_chain(certs.iter().collect())?;
+
+        // Extract SubjectPublicKeyInfo of leaf certificate.
+        let public_key_bytes = leaf_cert
+            .tbs_certificate
+            .subject_pki
+            .subject_public_key
+            .data;
+        let signature_bytes = self.decode_signature(&collection)?;
+        let data_bytes = self.serialize_data(&collection)?;
+
+        // Verify data against signature using public key
+        match self.verify_message(
+            &data_bytes,
+            public_key_bytes,
+            &signature_bytes,
+            VerificationAlgorithm::ECDSA_P384_SHA384_FIXED,
+        ) {
+            Ok(_) => Ok(()),
+            Err(err) => Err(SignatureError::MismatchError(err.to_string())),
+        }
+    }
 }
 
 #[derive(Debug, Error)]
@@ -98,7 +224,6 @@ pub enum SignatureError {
     MismatchError(String),
     #[error("certificate could not be downloaded from {}: HTTP {}", response.url, response.status)]
     CertificateDownloadError { response: Response },
-    #[cfg(any(feature = "ring_verifier", feature = "rc_crypto_verifier"))]
     #[error("certificate content could not be parsed: {0}")]
     CertificateContentError(#[from] x509::X509Error),
     #[error("root certificate fingerprint does not match: {0}")]
@@ -109,6 +234,8 @@ pub enum SignatureError {
     CertificateTrustError,
     #[error("certificate chain was signed with unsupported algorithm")]
     UnsupportedSignatureAlgorithm,
+    #[error("could not hash message: {0}")]
+    HashingError(String),
     #[error("signature contains invalid base64: {0}")]
     BadSignatureContent(#[from] base64::DecodeError),
     #[error("signature payload has no x5u field")]

@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject};
-pub use signatures::{SignatureError, Verification};
+pub use signatures::{HashAlgorithm, SignatureError, Verification, VerificationAlgorithm};
 pub use storage::{
     dummy_storage::DummyStorage, file_storage::FileStorage, memory_storage::MemoryStorage, Storage,
     StorageError,
@@ -419,7 +419,7 @@ fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -
 
 #[cfg(test)]
 mod tests {
-    use super::signatures::{SignatureError, Verification};
+    use super::signatures::{HashAlgorithm, SignatureError, Verification, VerificationAlgorithm};
     use super::{
         Client, ClientError, Collection, DummyStorage, DummyVerifier, MemoryStorage, Record,
     };
@@ -435,6 +435,20 @@ mod tests {
     struct VerifierWithInvalidSignatureError {}
 
     impl Verification for VerifierWithInvalidSignatureError {
+        fn hash(&self, _: &[u8], _: HashAlgorithm) -> Result<Vec<u8>, SignatureError> {
+            Ok(vec![]) // unreachable.
+        }
+
+        fn verify_message(
+            &self,
+            _: &[u8],
+            _: &[u8],
+            _: &[u8],
+            _: VerificationAlgorithm,
+        ) -> Result<(), SignatureError> {
+            Ok(()) // unreachable.
+        }
+
         fn verify(&self, _collection: &Collection, _: &str) -> Result<(), SignatureError> {
             Err(SignatureError::MismatchError(
                 "fake invalid signature".to_owned(),

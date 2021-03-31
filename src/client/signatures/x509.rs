@@ -29,21 +29,21 @@ pub fn parse_certificate_chain(pem_bytes: &[u8]) -> Result<Vec<Pem>, X509Error> 
                 }
                 Ok(pem)
             }
-            Err(e) => return Err(e.into()),
+            Err(e) => Err(e.into()),
         })
         .collect::<Result<Vec<Pem>, _>>()?
         .into_iter()
         .rev() // first will be root, last will be leaf.
         .collect();
 
-    if pems.len() == 0 {
+    if pems.is_empty() {
         return Err(X509Error::EmptyPEM);
     }
 
     Ok(pems)
 }
 
-pub fn parse_x509_certificate<'a>(pem: &'a Pem) -> Result<X509Certificate<'a>, X509Error> {
+pub fn parse_x509_certificate(pem: &Pem) -> Result<X509Certificate, X509Error> {
     let (_, cert) = x509_parser::parse_x509_certificate(&pem.contents)?;
     Ok(cert)
 }

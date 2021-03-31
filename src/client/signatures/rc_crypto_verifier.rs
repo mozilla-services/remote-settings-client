@@ -2,48 +2,44 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use super::x509;
-use super::{Collection, SignatureError, Verification};
-use log::debug;
+use super::{x509, HashAlgorithm, SignatureError, Verification, VerificationAlgorithm};
 use rc_crypto::signature;
+use rc_crypto::digest::{digest, SHA256};
 
 pub struct RcCryptoVerifier {}
 
 impl RcCryptoVerifier {}
 
 impl Verification for RcCryptoVerifier {
-    fn verify(&self, collection: &Collection, root_hash: &str) -> Result<(), SignatureError> {
-        debug!("Verifying using x509-parser and rc_crypto");
+    fn hash(&self, input: &[u8], algorithm: HashAlgorithm) -> Result<Vec<u8>, SignatureError> {
+        let hash_alg = match algorithm {
+            HashAlgorithm::SHA256 => &SHA256,
+        };
+        match digest(hash_alg, &input) {
+            Ok(v) => Ok(v.as_ref().to_vec()),
+            Err(e) => Err(SignatureError::HashingError(e.to_string()))
+        }
+    }
 
-        // Get public key from certificate (PEM from `x5u` field).
-        let pem_bytes = self.fetch_certificate_chain(&collection)?;
+    fn verify_chain(&self, _: Vec<&x509::X509Certificate>) -> Result<(), SignatureError> {
+        // rc_crypto lacks RSA support.
+        Ok(())
+    }
 
-        let pems = x509::parse_certificate_chain(&pem_bytes)?;
-
-        let certs: Vec<x509::X509Certificate> = pems
-            .iter()
-            .map(|pem| match x509::parse_x509_certificate(&pem) {
-                Ok(cert) => Ok(cert),
-                Err(e) => Err(e),
-            })
-            .collect::<Result<Vec<x509::X509Certificate>, _>>()?;
-
-        // Extract SubjectPublicKeyInfo of leaf certificate.
-        let leaf_cert = certs.first().unwrap(); // PEM parse fails if len == 0.
-        let public_key_bytes = leaf_cert
-            .tbs_certificate
-            .subject_pki
-            .subject_public_key
-            .data;
-        let public_key =
-            signature::UnparsedPublicKey::new(&signature::ECDSA_P384_SHA384, &public_key_bytes);
-
-        let signature_bytes = self.decode_signature(&collection)?;
-
-        let data_bytes = self.serialize_data(&collection)?;
-
-        // Verify data against signature using public key
-        match public_key.verify(&data_bytes, &signature_bytes) {
+    fn verify_message(
+        &self,
+        message: &[u8],
+        key: &[u8],
+        signature: &[u8],
+        algorithm: VerificationAlgorithm,
+    ) -> Result<(), SignatureError> {
+        let signature_alg = match algorithm {
+            VerificationAlgorithm::ECDSA_P384_SHA384_FIXED => &signature::ECDSA_P384_SHA384,
+            VerificationAlgorithm::ECDSA_P256_SHA256_FIXED => &signature::ECDSA_P256_SHA256,
+            _ => return Err(SignatureError::UnsupportedSignatureAlgorithm),
+        };
+        let public_key = signature::UnparsedPublicKey::new(signature_alg, &key);
+        match public_key.verify(&message, &signature) {
             Ok(_) => Ok(()),
             Err(err) => Err(SignatureError::MismatchError(err.to_string())),
         }
