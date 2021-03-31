@@ -45,7 +45,7 @@ use thiserror::Error;
 ///    .build();
 /// # }
 /// ```
-pub trait Verification {
+pub trait Verification: Send {
     fn fetch_certificate_chain(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
         // Fetch certificate PEM (public key).
         let x5u = collection.metadata["signature"]["x5u"]
