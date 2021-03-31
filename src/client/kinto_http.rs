@@ -271,7 +271,7 @@ mod tests {
                     "changeset timestamp could not be parsed: \"foo\""
                 )
             }
-            e => assert!(false, format!("Unexpected error type: {:?}", e)),
+            e => assert!(false, "Unexpected error type: {:?}", e),
         };
 
         get_latest_change_mock.delete();
@@ -312,7 +312,7 @@ mod tests {
                 let details = info.details.as_ref().unwrap();
                 assert_eq!(details["field"].as_str().unwrap(), "_expected");
             }
-            e => assert!(false, format!("Unexpected error type: {:?}", e)),
+            e => assert!(false, "Unexpected error type: {:?}", e),
         };
 
         get_changeset_mock.delete();
@@ -353,7 +353,7 @@ mod tests {
                 assert_eq!(info.error, "Service unavailable");
                 assert_eq!(info.details, None);
             }
-            e => assert!(false, format!("Unexpected error type: {:?}", e)),
+            e => assert!(false, "Unexpected error type: {:?}", e),
         };
 
         get_changeset_mock.delete();
@@ -367,8 +367,10 @@ mod tests {
 
         let mut redirects_mock = mock_server.mock(|when, then| {
             when.path("/buckets/monitor/collections/changes/changeset");
-            then.status(302)
-                .header("Location", "/v2/buckets/monitor/collections/changes/changeset");
+            then.status(302).header(
+                "Location",
+                "/v2/buckets/monitor/collections/changes/changeset",
+            );
         });
 
         let mut changeset_mock = mock_server.mock(|when, then| {
@@ -389,9 +391,7 @@ mod tests {
             );
         });
 
-        let res =
-            get_latest_change_timestamp(&mock_server.url(""), "main", "crlite")
-                .unwrap();
+        let res = get_latest_change_timestamp(&mock_server.url(""), "main", "crlite").unwrap();
 
         assert_eq!(res, 5678);
 
