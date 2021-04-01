@@ -2,14 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use remote_settings_client::{Client, Collection, SignatureError, Verification};
 use remote_settings_client::client::{FileStorage, RingVerifier};
+use remote_settings_client::Client;
 use serde::Deserialize;
 pub use url::{ParseError, Url};
 use viaduct::{set_backend, Request};
 pub use viaduct_reqwest::ReqwestBackend;
-
-struct CustomVerifier {}
 
 #[derive(Deserialize, Debug)]
 struct KintoPluralResponse<T> {
@@ -20,12 +18,6 @@ struct KintoPluralResponse<T> {
 pub struct LatestChangeEntry {
     pub bucket: String,
     pub collection: String,
-}
-
-impl Verification for CustomVerifier {
-    fn verify(&self, _collection: &Collection, _root_hash: &str) -> Result<(), SignatureError> {
-        Ok(()) // everything is verified!
-    }
 }
 
 fn main() {
@@ -40,19 +32,6 @@ fn main() {
         .unwrap();
 
     match client.get() {
-        Ok(records) => println!("{} records.", records.len()),
-        Err(error) => println!("FAILED ({:?})", error),
-    };
-
-    print!("Fetching records using RS client with custom Verifier: ");
-
-    let mut client_with_custom_verifier = Client::builder()
-        .collection_name("url-classifier-skip-urls")
-        .verifier(Box::new(CustomVerifier {}))
-        .build()
-        .unwrap();
-
-    match client_with_custom_verifier.get() {
         Ok(records) => println!("{} records.", records.len()),
         Err(error) => println!("FAILED ({:?})", error),
     };
