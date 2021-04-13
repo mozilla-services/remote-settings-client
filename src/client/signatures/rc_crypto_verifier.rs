@@ -3,8 +3,8 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::{x509, HashAlgorithm, SignatureError, Verification, VerificationAlgorithm};
-use rc_crypto::signature;
 use rc_crypto::digest::{digest, SHA256};
+use rc_crypto::signature;
 
 pub struct RcCryptoVerifier {}
 
@@ -17,7 +17,7 @@ impl Verification for RcCryptoVerifier {
         };
         match digest(hash_alg, &input) {
             Ok(v) => Ok(v.as_ref().to_vec()),
-            Err(e) => Err(SignatureError::HashingError(e.to_string()))
+            Err(e) => Err(SignatureError::HashingError(e.to_string())),
         }
     }
 

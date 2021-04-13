@@ -46,10 +46,27 @@ fn main() {
         let cid = format!("{}/{}", collection.bucket, collection.collection);
         print!("Fetching records of {}: ", cid);
 
+        // We use different signing chains depending on the bucket/collection.
+        let signer_name = match collection.bucket.as_str() {
+            "pinning" => "pinning-preload",
+            "pinning-preview" => "pinning-preload",
+            "security-state" => "onecrl",
+            "security-state-preview" => "onecrl",
+            "blocklists" => match collection.collection.as_str() {
+                "certificates" => "onecrl",
+                _ => "remote-settings",
+            },
+            _ => "remote-settings",
+        };
+
         let mut client = Client::builder()
             .bucket_name(&collection.bucket)
             .collection_name(&collection.collection)
-            .storage(Box::new(FileStorage { folder: "/tmp".into(), ..FileStorage::default() }))
+            .signer_name(format!("{}.content-signature.mozilla.org", signer_name))
+            .storage(Box::new(FileStorage {
+                folder: "/tmp".into(),
+                ..FileStorage::default()
+            }))
             .verifier(Box::new(RingVerifier {}))
             .build()
             .unwrap();

@@ -15,9 +15,9 @@ pub mod x509;
 use crate::client::Collection;
 use log::debug;
 use serde_json::json;
+use thiserror::Error;
 use url::{ParseError as URLParseError, Url};
 use viaduct::{Error as ViaductError, Request, Response};
-use thiserror::Error;
 use x509_parser::time::ASN1Time;
 
 #[cfg(not(test))]
@@ -25,7 +25,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[cfg(not(test))]
 fn epoch_seconds() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap() // Time won't go backwards.
+        .as_secs()
 }
 
 #[cfg(test)]
@@ -210,6 +213,19 @@ pub trait Verification: Send {
         // Check chain of trust.
         self.verify_chain(certs.iter().collect())?;
 
+        // Check that signer name matches Subject Alternative Name.
+        let subject = leaf_cert
+            .tbs_certificate
+            .subject
+            .iter_common_name()
+            .next()
+            .and_then(|cn| cn.as_str().ok())
+            .unwrap_or("")
+            .to_string();
+        if subject != collection.signer {
+            return Err(SignatureError::WrongSignerName(subject));
+        }
+
         // Extract SubjectPublicKeyInfo of leaf certificate.
         let public_key_bytes = leaf_cert
             .tbs_certificate
@@ -242,6 +258,8 @@ pub enum SignatureError {
     CertificateContentError(#[from] x509::X509Error),
     #[error("root certificate fingerprint does not match: {0}")]
     CertificateHasWrongRoot(String),
+    #[error("certificate alternate subject does not match: {0}")]
+    WrongSignerName(String),
     #[error("certificate expired")]
     CertificateExpired,
     #[error("certificate chain could not be verified")]
@@ -323,6 +341,7 @@ mod tests {
             metadata: json!({}),
             records: vec![],
             timestamp: 0,
+            signer: "".to_string(),
         };
         let err = verifier.fetch_certificate_chain(&collection).unwrap_err();
         match err {
@@ -363,6 +382,7 @@ mod tests {
                 }),
                 records: vec![],
                 timestamp: 0,
+                signer: "".to_string(),
             };
             let err = verifier.fetch_certificate_chain(&collection).unwrap_err();
             assert!(err.to_string().contains(error), "{}", err.to_string());
@@ -516,6 +536,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 }),
                 timestamp: 1603992731957,
                 records: vec![],
+                signer: "remote-settings.content-signature.mozilla.org".to_string(),
             },
             VALID_CERTIFICATE,
             false,
@@ -535,6 +556,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 }),
                 timestamp: 1594998798350,
                 records: vec![Record::new(json!({"id": "bad-record"}))],
+                signer: "".to_string(),
             },
             VALID_CERTIFICATE,
             true,
@@ -554,6 +576,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 }),
                 timestamp: 1594998798350,
                 records: vec![],
+                signer: "".to_string(),
             },
             VALID_CERTIFICATE,
             true,
@@ -573,8 +596,29 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 }),
                 timestamp: 1594998798350,
                 records: vec![],
+                signer: "".to_string(),
             },
             INVALID_CERTIFICATE,
+            true,
+        );
+
+        // signature verification should fail if signer name is wrong
+        verify_signature(
+            &mock_server,
+            Collection {
+                bid: "main".to_owned(),
+                cid: "pioneer-study-addons".to_owned(),
+                metadata: json!({
+                    "signature": json!({
+                        "x5u": mock_server.url("/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain"),
+                        "signature": VALID_SIGNATURE
+                    })
+                }),
+                timestamp: 1594998798350,
+                records: vec![],
+                signer: "normandy.content-signature.mozilla.org".to_string(),
+            },
+            VALID_CERTIFICATE,
             true,
         );
     }
