@@ -17,9 +17,24 @@ use log::debug;
 use serde_json::json;
 use url::{ParseError as URLParseError, Url};
 use viaduct::{Error as ViaductError, Request, Response};
-
 use thiserror::Error;
 use x509_parser::time::ASN1Time;
+
+#[cfg(not(test))]
+use std::time::{SystemTime, UNIX_EPOCH};
+
+#[cfg(not(test))]
+fn epoch_seconds() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+}
+
+#[cfg(test)]
+use mock_instant;
+
+#[cfg(test)]
+fn epoch_seconds() -> u64 {
+    mock_instant::MockClock::time().as_secs()
+}
 
 macro_rules! hex {
     ($b: expr) => {{
@@ -187,8 +202,7 @@ pub trait Verification: Send {
 
         // Check certificate validity.
         // TODO: take clock skew into account
-        // TODO: mock from tests
-        let now = ASN1Time::now();
+        let now = ASN1Time::from_timestamp(epoch_seconds() as i64);
         if !leaf_cert.tbs_certificate.validity.is_valid_at(now) {
             return Err(SignatureError::CertificateExpired);
         }
@@ -254,7 +268,9 @@ mod tests {
     use crate::{Collection, Record, SignatureError, Verification};
     use env_logger;
     use httpmock::MockServer;
+    use mock_instant::MockClock;
     use serde_json::json;
+    use std::time::Duration;
     use viaduct::set_backend;
     use viaduct_reqwest::ReqwestBackend;
 
@@ -482,6 +498,10 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
         const VALID_SIGNATURE: &str = r#"fJJcOpwdnkjEWFeHXfdOJN6GaGLuDTPGzQOxA2jn6ldIleIk6KqMhZcy2GZv2uYiGwl6DERWwpaoUfQFLyCAOcVjck1qlaaEFZGY1BQba9p99xEc9FNQ3YPPfvSSZqsw"#;
 
         const INVALID_SIGNATURE: &str = r#"invalid-signature: oPRadsg_5wnnUXlRIjamXKPWyyGe4VLt-KR4-PJTK2hq4hF196L3nbvne1_7-HfpoVRR4BLsHWtnnt6700CTt5kNgwvrE8aJ3nXFa0vJBoOvIRco-vCt-rJ7acEu0IFG"#;
+
+        // Adjust current time, since the above certificate has expired.
+        let march_12_2021 = Duration::from_secs(1615559719);
+        MockClock::set_time(march_12_2021);
 
         verify_signature(
             &mock_server,
