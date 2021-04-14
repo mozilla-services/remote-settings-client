@@ -5,6 +5,7 @@
 use super::{x509, SignatureError, Verification};
 use rc_crypto::digest::{digest, SHA256};
 use rc_crypto::signature;
+use x509_parser::time::ASN1Time;
 
 pub struct RcCryptoVerifier {}
 
@@ -13,7 +14,7 @@ impl RcCryptoVerifier {}
 impl Verification for RcCryptoVerifier {
     fn verify_nist384p_chain(
         &self,
-        _epoch_seconds: u64,
+        epoch_seconds: u64,
         pem_bytes: &[u8],
         root_hash: &[u8],
         subject_cn: &str,
@@ -50,6 +51,12 @@ impl Verification for RcCryptoVerifier {
             return Err(SignatureError::CertificateHasWrongRoot(hex::encode(
                 root_fingerprint_bytes,
             )));
+        }
+        let now = ASN1Time::from_timestamp(epoch_seconds as i64);
+        for cert in &certs {
+            if !cert.tbs_certificate.validity.is_valid_at(now) {
+                return Err(SignatureError::CertificateExpired);
+            }
         }
         let leaf_cert = certs.last().unwrap(); // PEM parse fails if len == 0.
         let leaf_subject = leaf_cert

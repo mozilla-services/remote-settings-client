@@ -527,5 +527,27 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
             VALID_CERTIFICATE,
             true,
         );
+
+
+        // signature verification should fail if certificate has expired.
+        MockClock::set_time(Duration::default());
+        verify_signature(
+            &mock_server,
+            Collection {
+                bid: "main".to_owned(),
+                cid: "pioneer-study-addons".to_owned(),
+                metadata: json!({
+                    "signature": json!({
+                        "x5u": mock_server.url("/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain"),
+                        "signature": VALID_SIGNATURE
+                    })
+                }),
+                timestamp: 1603992731957,
+                records: vec![],
+                signer: "remote-settings.content-signature.mozilla.org".to_string(),
+            },
+            VALID_CERTIFICATE,
+            true,
+        );
     }
 }
