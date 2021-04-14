@@ -189,6 +189,7 @@ pub enum SignatureError {
 #[cfg(test)]
 mod tests {
     use super::dummy_verifier::DummyVerifier;
+    use super::x509;
     use crate::{Collection, Record, SignatureError, Verification};
     use env_logger;
     use httpmock::MockServer;
@@ -198,11 +199,17 @@ mod tests {
     use viaduct::set_backend;
     use viaduct_reqwest::ReqwestBackend;
 
+    impl PartialEq for SignatureError {
+        fn eq(&self, other: &Self) -> bool {
+            std::mem::discriminant(self) == std::mem::discriminant(other)
+        }
+    }
+
     fn verify_signature(
         mock_server: &MockServer,
         collection: Collection,
         certificate: &str,
-        should_fail: bool,
+        expected_result: Result<(), SignatureError>,
     ) {
         let mut get_pem_certificate = mock_server.mock(|when, then| {
             when.path(
@@ -222,11 +229,7 @@ mod tests {
         let root_hash = "3C:01:44:6A:BE:90:36:CE:A9:A0:9A:CA:A3:A5:20:AC:62:8F:20:A7:AE:32:CE:86:1C:B2:EF:B7:0F:A0:C7:45";
 
         for verifier in &verifiers {
-            if should_fail {
-                verifier.verify(&collection, root_hash).unwrap_err();
-            } else {
-                verifier.verify(&collection, root_hash).unwrap();
-            }
+            assert_eq!(verifier.verify(&collection, root_hash), expected_result);
         }
 
         get_pem_certificate.assert_hits(verifiers.len());
@@ -445,7 +448,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 signer: "remote-settings.content-signature.mozilla.org".to_string(),
             },
             VALID_CERTIFICATE,
-            false,
+            Ok(()),
         );
 
         // signature verification should fail with invalid message
@@ -462,10 +465,10 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 }),
                 timestamp: 1594998798350,
                 records: vec![Record::new(json!({"id": "bad-record"}))],
-                signer: "".to_string(),
+                signer: "remote-settings.content-signature.mozilla.org".to_string(),
             },
             VALID_CERTIFICATE,
-            true,
+            Err(SignatureError::MismatchError("".to_string())),
         );
 
         // signature verification should fail with invalid signature
@@ -482,10 +485,12 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 }),
                 timestamp: 1594998798350,
                 records: vec![],
-                signer: "".to_string(),
+                signer: "remote-settings.content-signature.mozilla.org".to_string(),
             },
             VALID_CERTIFICATE,
-            true,
+            Err(SignatureError::BadSignatureContent(
+                base64::DecodeError::InvalidByte(17, 58),
+            )),
         );
 
         // signature verification should fail with invalid certificate
@@ -502,10 +507,12 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 }),
                 timestamp: 1594998798350,
                 records: vec![],
-                signer: "".to_string(),
+                signer: "remote-settings.content-signature.mozilla.org".to_string(),
             },
             INVALID_CERTIFICATE,
-            true,
+            Err(SignatureError::CertificateContentError(
+                x509::X509Error::WrongPEMType("".to_string()),
+            )),
         );
 
         // signature verification should fail if signer name is wrong
@@ -525,9 +532,10 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 signer: "normandy.content-signature.mozilla.org".to_string(),
             },
             VALID_CERTIFICATE,
-            true,
+            Err(SignatureError::WrongSignerName(
+                "normandy.content-signature.mozilla.org".to_string(),
+            )),
         );
-
 
         // signature verification should fail if certificate has expired.
         MockClock::set_time(Duration::default());
@@ -547,7 +555,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 signer: "remote-settings.content-signature.mozilla.org".to_string(),
             },
             VALID_CERTIFICATE,
-            true,
+            Err(SignatureError::CertificateExpired),
         );
     }
 }
