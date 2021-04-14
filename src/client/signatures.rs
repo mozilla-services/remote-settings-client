@@ -13,12 +13,12 @@ pub mod rc_crypto_verifier;
 pub mod x509;
 
 use crate::client::Collection;
+use hex;
 use log::debug;
 use serde_json::json;
 use thiserror::Error;
 use url::{ParseError as URLParseError, Url};
 use viaduct::{Error as ViaductError, Request, Response};
-use x509_parser::time::ASN1Time;
 
 #[cfg(not(test))]
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -39,45 +39,27 @@ fn epoch_seconds() -> u64 {
     mock_instant::MockClock::time().as_secs()
 }
 
-macro_rules! hex {
-    ($b: expr) => {{
-        let ss: Vec<String> = $b.iter().map(|b| format!("{:02X}", b)).collect();
-        ss.join(":")
-    }};
-}
-
-#[allow(non_camel_case_types)]
-pub enum VerificationAlgorithm {
-    ECDSA_P256_SHA256_ASN1,
-    ECDSA_P256_SHA256_FIXED,
-    ECDSA_P384_SHA384_ASN1,
-    ECDSA_P384_SHA384_FIXED,
-    RSA_SHA256,
-    RSA_SHA384,
-    RSA_SHA512,
-}
-
-pub enum HashAlgorithm {
-    SHA256,
-}
-
 /// A trait for signature verification of collection data.
 ///
 /// You may want to use your own verification implementation (eg. using OpenSSL instead of `ring` or `rc_crypto`).
 ///
 /// # How can I implement ```Verification```?
 /// ```rust
-/// # use remote_settings_client::client::{Client, Collection, HashAlgorithm, SignatureError, Verification, VerificationAlgorithm};
+/// # use remote_settings_client::client::{Client, Collection, SignatureError, Verification};
 ///
 /// struct SignatureVerifier {}
 ///
 /// impl Verification for SignatureVerifier {
-///     fn hash(&self, input: &[u8], algorithm: HashAlgorithm) -> Result<Vec<u8>, SignatureError> {
-///         Ok(vec!())
-///     }
-///     
-///     fn verify_message(&self, message: &[u8], key: &[u8], signature: &[u8], algorithm: VerificationAlgorithm) -> Result<(), SignatureError> {
-///         Ok(())
+///     fn verify_nist384p_chain(
+///         &self,
+///         epoch_seconds: u64,
+///         pem_bytes: &[u8],
+///         root_hash: &[u8],
+///         subject_cn: &str,
+///         message: &[u8],
+///         signature: &[u8],
+///     ) -> Result<(), SignatureError> {
+///         Ok(()) // unreachable.
 ///     }
 /// }
 ///
@@ -89,28 +71,18 @@ pub enum HashAlgorithm {
 /// # }
 /// ```
 pub trait Verification: Send {
-    fn hash(&self, input: &[u8], algorithm: HashAlgorithm) -> Result<Vec<u8>, SignatureError>;
-
-    fn verify_message(
-        &self,
-        message: &[u8],
-        key: &[u8],
-        signature: &[u8],
-        algorithm: VerificationAlgorithm,
-    ) -> Result<(), SignatureError>;
-
     fn fetch_certificate_chain(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
-        // Fetch certificate PEM (public key).
+        // Get public key from collection metadata (PEM URL is `x5u` field).
         let x5u = collection.metadata["signature"]["x5u"]
             .as_str()
             .ok_or(SignatureError::MissingSignatureField())?;
-
+        // Fetch certificate from URL (certificate chain).
         debug!("Fetching certificate {}", x5u);
         let response = Request::get(Url::parse(&x5u)?).send()?;
         if !response.is_success() {
             return Err(SignatureError::CertificateDownloadError { response });
         }
-
+        // TODO: read server time from headers to compute clock skew and return along
         Ok(response.body)
     }
 
@@ -130,47 +102,13 @@ pub trait Verification: Send {
             "last_modified": collection.timestamp.to_string()
         }))?;
         let data = format!("Content-Signature:\x00{}", serialized);
-
         Ok(data.as_bytes().to_vec())
     }
 
-    fn verify_chain(&self, certs: Vec<&x509::X509Certificate>) -> Result<(), SignatureError> {
-        // Verify signature chain.
-        for pair in certs.windows(2) {
-            if let [parent, child] = pair {
-                let signature_alg = &child.signature_algorithm.algorithm;
-                let verification_alg = if *signature_alg == oid_registry::OID_PKCS1_SHA256WITHRSA {
-                    VerificationAlgorithm::RSA_SHA256
-                } else if *signature_alg == oid_registry::OID_PKCS1_SHA384WITHRSA {
-                    VerificationAlgorithm::RSA_SHA384
-                } else if *signature_alg == oid_registry::OID_PKCS1_SHA512WITHRSA {
-                    VerificationAlgorithm::RSA_SHA512
-                } else if *signature_alg == oid_registry::OID_SIG_ECDSA_WITH_SHA256 {
-                    VerificationAlgorithm::ECDSA_P256_SHA256_ASN1
-                } else if *signature_alg == oid_registry::OID_SIG_ECDSA_WITH_SHA384 {
-                    VerificationAlgorithm::ECDSA_P384_SHA384_ASN1
-                } else {
-                    return Err(SignatureError::UnsupportedSignatureAlgorithm);
-                };
-
-                let parent_pk_bytes = parent.tbs_certificate.subject_pki.subject_public_key.data;
-                let child_der_bytes = child.tbs_certificate.as_ref();
-                let child_sig_bytes = child.signature_value.data;
-
-                self.verify_message(
-                    child_der_bytes,
-                    parent_pk_bytes,
-                    child_sig_bytes,
-                    verification_alg,
-                )
-                .or(Err(SignatureError::CertificateTrustError))?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Verifies signature for a given ```Collection``` struct
-    ///
+    /// Verifies signature for a given ```Collection``` struct.
+    /// 1. Fetch and parse the chain of PEM-format certificates linked to in the "x5u" property.
+    /// 2. Serialize the collection data in canonical JSON format.
+    /// 3. Verify the certificates chain of trust using root_hash and signer name, and that the ECDSA P384 SHA384 signature matches the data.
     /// # Errors
     /// If all the steps are performed without errors, but the specified collection data
     /// does not match its signature, then a [`SignatureError::MismatchError`] is returned.
@@ -178,74 +116,40 @@ pub trait Verification: Send {
     /// If errors occur during certificate download, parsing, or data serialization, then
     /// the corresponding error is returned.
     fn verify(&self, collection: &Collection, root_hash: &str) -> Result<(), SignatureError> {
-        // Get public key from certificate (PEM from `x5u` field).
-        // TODO: read server time from headers to compute clock skew
         let pem_bytes = self.fetch_certificate_chain(&collection)?;
-
-        let pems = x509::parse_certificate_chain(&pem_bytes)?;
-
-        let certs: Vec<x509::X509Certificate> = pems
-            .iter()
-            .map(|pem| match x509::parse_x509_certificate(&pem) {
-                Ok(cert) => Ok(cert),
-                Err(e) => Err(e),
-            })
-            .collect::<Result<Vec<x509::X509Certificate>, _>>()?;
-
-        let root_pem = pems.first().unwrap();
-
-        // Verify root hash: hex fingerprint of DER content.
-        let root_fingerprint_bytes = self.hash(&root_pem.contents, HashAlgorithm::SHA256)?;
-        let root_fingerprint = hex!(root_fingerprint_bytes);
-        if root_fingerprint != root_hash {
-            return Err(SignatureError::CertificateHasWrongRoot(root_fingerprint));
-        }
-
-        let leaf_cert = certs.last().unwrap(); // PEM parse fails if len == 0.
-
-        // Check certificate validity.
-        // TODO: take clock skew into account
-        let now = ASN1Time::from_timestamp(epoch_seconds() as i64);
-        if !leaf_cert.tbs_certificate.validity.is_valid_at(now) {
-            return Err(SignatureError::CertificateExpired);
-        }
-
-        // Check chain of trust.
-        self.verify_chain(certs.iter().collect())?;
-
-        // Check that signer name matches Subject Alternative Name.
-        let subject = leaf_cert
-            .tbs_certificate
-            .subject
-            .iter_common_name()
-            .next()
-            .and_then(|cn| cn.as_str().ok())
-            .unwrap_or("")
-            .to_string();
-        if subject != collection.signer {
-            return Err(SignatureError::WrongSignerName(subject));
-        }
-
-        // Extract SubjectPublicKeyInfo of leaf certificate.
-        let public_key_bytes = leaf_cert
-            .tbs_certificate
-            .subject_pki
-            .subject_public_key
-            .data;
         let signature_bytes = self.decode_signature(&collection)?;
         let data_bytes = self.serialize_data(&collection)?;
 
-        // Verify data against signature using public key
-        match self.verify_message(
+        let root_hash_bytes = hex::decode(&root_hash.replace(":", ""))
+            .or_else(|err| Err(SignatureError::RootFormatError(err.to_string())))?;
+
+        let now = epoch_seconds();
+        self.verify_nist384p_chain(
+            now,
+            &pem_bytes,
+            &root_hash_bytes,
+            &collection.signer,
             &data_bytes,
-            public_key_bytes,
             &signature_bytes,
-            VerificationAlgorithm::ECDSA_P384_SHA384_FIXED,
-        ) {
-            Ok(_) => Ok(()),
-            Err(err) => Err(SignatureError::MismatchError(err.to_string())),
-        }
+        )
     }
+
+    /// Verify chain of trust.
+    /// 1. Parse the PEM bytes as DER-encoded X.509 Certificate.
+    /// 2. Verify that root hash matches the SHA256 fingerprint of the root certificate (DER content)
+    /// 3. Verify that each certificate of the chain is currently valid (revocation support is optional)
+    /// 4. Verify that each child signature matches its parent's public key for each pair in the chain
+    /// 5. Verify that the subject alternate name of the end-entity certificate matches the collection signer name.
+    /// 6. Use the chain's end-entity (leaf) certificate to verify that the "signature" property matches the contents of the data.
+    fn verify_nist384p_chain(
+        &self,
+        epoch_seconds: u64,
+        pem_bytes: &[u8],
+        root_hash: &[u8],
+        subject_cn: &str,
+        message: &[u8],
+        signature: &[u8],
+    ) -> Result<(), SignatureError>;
 }
 
 #[derive(Debug, Error)]
@@ -256,6 +160,8 @@ pub enum SignatureError {
     CertificateDownloadError { response: Response },
     #[error("certificate content could not be parsed: {0}")]
     CertificateContentError(#[from] x509::X509Error),
+    #[error("root certificate fingerprint has bad format: {0}")]
+    RootFormatError(String),
     #[error("root certificate fingerprint does not match: {0}")]
     CertificateHasWrongRoot(String),
     #[error("certificate alternate subject does not match: {0}")]

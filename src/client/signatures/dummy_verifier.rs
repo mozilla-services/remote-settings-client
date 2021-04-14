@@ -2,22 +2,20 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use super::{Collection, HashAlgorithm, SignatureError, Verification, VerificationAlgorithm};
+use super::{Collection, SignatureError, Verification};
 use log::debug;
 
 pub struct DummyVerifier {}
 
 impl Verification for DummyVerifier {
-    fn hash(&self, _: &[u8], _: HashAlgorithm) -> Result<Vec<u8>, SignatureError> {
-        Ok(vec![]) // unreachable.
-    }
-
-    fn verify_message(
+    fn verify_nist384p_chain(
         &self,
+        _: u64,
         _: &[u8],
         _: &[u8],
+        _: &str,
         _: &[u8],
-        _: VerificationAlgorithm,
+        _: &[u8],
     ) -> Result<(), SignatureError> {
         Ok(()) // unreachable.
     }
