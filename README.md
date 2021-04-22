@@ -16,8 +16,8 @@ Relies on Mozilla's [viaduct](https://github.com/mozilla/application-services/tr
 ```toml
 [dependencies]
 remote-settings-client = { version = "0.1", features = ["ring_verifier"] }
-viaduct = { git = "https://github.com/mozilla/application-services", rev = "v75.0.0"}
-viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v75.0.0"}
+viaduct = { git = "https://github.com/mozilla/application-services", rev = "v75.2.0"}
+viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v75.2.0"}
 ```
 
 Minimal example:
