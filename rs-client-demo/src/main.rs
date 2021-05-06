@@ -2,14 +2,12 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use remote_settings_client::{Client, Collection, SignatureError, Verification};
 use remote_settings_client::client::{FileStorage, RingVerifier};
+use remote_settings_client::Client;
 use serde::Deserialize;
 pub use url::{ParseError, Url};
 use viaduct::{set_backend, Request};
 pub use viaduct_reqwest::ReqwestBackend;
-
-struct CustomVerifier {}
 
 #[derive(Deserialize, Debug)]
 struct KintoPluralResponse<T> {
@@ -20,12 +18,6 @@ struct KintoPluralResponse<T> {
 pub struct LatestChangeEntry {
     pub bucket: String,
     pub collection: String,
-}
-
-impl Verification for CustomVerifier {
-    fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
-        Ok(()) // everything is verified!
-    }
 }
 
 fn main() {
@@ -44,19 +36,6 @@ fn main() {
         Err(error) => println!("FAILED ({:?})", error),
     };
 
-    print!("Fetching records using RS client with custom Verifier: ");
-
-    let mut client_with_custom_verifier = Client::builder()
-        .collection_name("url-classifier-skip-urls")
-        .verifier(Box::new(CustomVerifier {}))
-        .build()
-        .unwrap();
-
-    match client_with_custom_verifier.get() {
-        Ok(records) => println!("{} records.", records.len()),
-        Err(error) => println!("FAILED ({:?})", error),
-    };
-
     let url = "https://firefox.settings.services.mozilla.com/v1/buckets/monitor/collections/changes/changeset?_expected=0";
     let response = Request::get(Url::parse(&url).unwrap()).send().unwrap();
     let collections: KintoPluralResponse<LatestChangeEntry> = response.json().unwrap();
@@ -67,10 +46,27 @@ fn main() {
         let cid = format!("{}/{}", collection.bucket, collection.collection);
         print!("Fetching records of {}: ", cid);
 
+        // We use different signing chains depending on the bucket/collection.
+        let signer_name = match collection.bucket.as_str() {
+            "pinning" => "pinning-preload",
+            "pinning-preview" => "pinning-preload",
+            "security-state" => "onecrl",
+            "security-state-preview" => "onecrl",
+            "blocklists" => match collection.collection.as_str() {
+                "certificates" => "onecrl",
+                _ => "remote-settings",
+            },
+            _ => "remote-settings",
+        };
+
         let mut client = Client::builder()
             .bucket_name(&collection.bucket)
             .collection_name(&collection.collection)
-            .storage(Box::new(FileStorage { folder: "/tmp".into(), ..FileStorage::default() }))
+            .signer_name(format!("{}.content-signature.mozilla.org", signer_name))
+            .storage(Box::new(FileStorage {
+                folder: "/tmp".into(),
+                ..FileStorage::default()
+            }))
             .verifier(Box::new(RingVerifier {}))
             .build()
             .unwrap();

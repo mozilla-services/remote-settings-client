@@ -8,7 +8,19 @@ use log::debug;
 pub struct DummyVerifier {}
 
 impl Verification for DummyVerifier {
-    fn verify(&self, _collection: &Collection) -> Result<(), SignatureError> {
+    fn verify_nist384p_chain(
+        &self,
+        _: u64,
+        _: &[u8],
+        _: &[u8],
+        _: &str,
+        _: &[u8],
+        _: &[u8],
+    ) -> Result<(), SignatureError> {
+        Ok(()) // unreachable.
+    }
+
+    fn verify(&self, _collection: &Collection, _: &str) -> Result<(), SignatureError> {
         debug!("default verifier implementation");
         Ok(())
     }
