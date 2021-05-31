@@ -36,4 +36,4 @@ oid-registry = { version = "0.1.1", optional = true }
 x509-parser = "0.9.2"
 
 # rc_crypto verifier
-rc_crypto = { git = "https://github.com/mozilla/application-services", rev = "v75.2.0", optional = true }
+rc_crypto = { git = "https://github.com/mozilla/application-services", rev = "v77.0.2", optional = true }
