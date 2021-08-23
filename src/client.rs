@@ -131,7 +131,7 @@ pub struct Collection {
 /// # use remote_settings_client::Client;
 /// # fn main() {
 /// let client = Client::builder()
-///   .server_url("https://settings.stage.mozaws.net/v1")
+///   .server_url("https://settings-cdn.stage.mozaws.net/v1")
 ///   .bucket_name("main-preview")
 ///   .collection_name("cid")
 ///   .build()
