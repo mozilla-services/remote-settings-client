@@ -33,7 +33,7 @@ thiserror = "1.0"
 # ring_verifier
 ring = { version = "0.16", optional = true }
 oid-registry = { version = "0.1.1", optional = true }
-x509-parser = "0.10.0"
+x509-parser = "0.11.0"
 
 # rc_crypto verifier
 rc_crypto = { git = "https://github.com/mozilla/application-services", rev = "ab5f2120dc7b3de9384b3f1d5167efb8b3fabcd1", optional = true }
