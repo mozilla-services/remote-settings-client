@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::{x509, SignatureError, Verification};
+use hex;
 use ring::digest::{Context, SHA256};
 use ring::signature;
 use x509_parser::time::ASN1Time;
@@ -16,29 +17,39 @@ impl Verification for RingVerifier {
         &self,
         epoch_seconds: u64,
         pem_bytes: &[u8],
-        root_hash: &[u8],
+        root_hash: &str,
         subject_cn: &str,
         message: &[u8],
         signature: &[u8],
     ) -> Result<(), SignatureError> {
         // 1. Parse the PEM bytes as DER-encoded X.509 Certificate.
-        let pems = x509::parse_certificate_chain(&pem_bytes)?;
-        let certs: Vec<x509::X509Certificate> = pems
+        let pems = match x509::parse_certificate_chain(&pem_bytes) {
+            Ok(pems) => pems,
+            Err(err) => return Err(SignatureError::CertificateContentError(err.to_string())),
+        };
+        let certs: Vec<x509::X509Certificate> = match pems
             .iter()
             .map(|pem| match x509::parse_x509_certificate(&pem) {
                 Ok(cert) => Ok(cert),
                 Err(e) => Err(e),
             })
-            .collect::<Result<Vec<x509::X509Certificate>, _>>()?;
+            .collect::<Result<Vec<x509::X509Certificate>, _>>()
+        {
+            Ok(certs) => certs,
+            Err(err) => return Err(SignatureError::CertificateContentError(err.to_string())),
+        };
 
         // 2. Verify that root hash matches the SHA256 fingerprint of the root certificate (DER content)
+        let root_hash_bytes = hex::decode(&root_hash.replace(":", ""))
+            .or_else(|err| Err(SignatureError::RootHashFormatError(err.to_string())))?;
+
         let root_pem = pems.first().unwrap();
 
         let mut root_fingerprint_hash = Context::new(&SHA256);
         root_fingerprint_hash.update(&root_pem.contents);
         let root_fingerprint_bytes = root_fingerprint_hash.finish().as_ref().to_vec();
-        if root_fingerprint_bytes != root_hash {
-            return Err(SignatureError::CertificateHasWrongRoot(hex::encode(
+        if root_fingerprint_bytes != root_hash_bytes {
+            return Err(SignatureError::InvalidCertificateIssuer(hex::encode(
                 root_fingerprint_bytes,
             )));
         }
@@ -95,7 +106,7 @@ impl Verification for RingVerifier {
             .unwrap_or("")
             .to_string();
         if leaf_subject != subject_cn {
-            return Err(SignatureError::WrongSignerName(leaf_subject));
+            return Err(SignatureError::InvalidCertificateSubject(leaf_subject));
         }
         // 6. Use the chain's end-entity (leaf) certificate to verify that the "signature" property matches the contents of the data.
         let public_key_bytes = leaf_cert
@@ -105,7 +116,13 @@ impl Verification for RingVerifier {
             .data;
         let signature_alg = &signature::ECDSA_P384_SHA384_FIXED;
         let public_key = signature::UnparsedPublicKey::new(signature_alg, &public_key_bytes);
-        match public_key.verify(&message, &signature) {
+
+        let decoded_signature = match base64::decode_config(&signature, base64::URL_SAFE) {
+            Ok(s) => s,
+            Err(err) => return Err(SignatureError::BadSignatureContent(err.to_string())),
+        };
+
+        match public_key.verify(&message, &decoded_signature) {
             Ok(_) => Ok(()),
             Err(err) => Err(SignatureError::MismatchError(err.to_string())),
         }

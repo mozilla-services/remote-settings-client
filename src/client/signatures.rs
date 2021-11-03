@@ -7,13 +7,13 @@ pub mod dummy_verifier;
 #[cfg(feature = "ring_verifier")]
 pub mod ring_verifier;
 
+#[cfg(feature = "ring_verifier")]
+pub mod x509;
+
 #[cfg(feature = "rc_crypto_verifier")]
 pub mod rc_crypto_verifier;
 
-pub mod x509;
-
 use crate::client::Collection;
-use hex;
 use log::debug;
 use serde_json::json;
 use thiserror::Error;
@@ -54,7 +54,7 @@ fn epoch_seconds() -> u64 {
 ///         &self,
 ///         epoch_seconds: u64,
 ///         pem_bytes: &[u8],
-///         root_hash: &[u8],
+///         root_hash:&str,
 ///         subject_cn: &str,
 ///         message: &[u8],
 ///         signature: &[u8],
@@ -86,14 +86,6 @@ pub trait Verification: Send {
         Ok(response.body)
     }
 
-    fn decode_signature(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
-        let b64_signature = collection.metadata["signature"]["signature"]
-            .as_str()
-            .unwrap_or("");
-
-        Ok(base64::decode_config(&b64_signature, base64::URL_SAFE)?)
-    }
-
     fn serialize_data(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
         let mut sorted_records = collection.records.to_vec();
         sorted_records.sort_by_cached_key(|r| r.id().to_owned());
@@ -117,17 +109,19 @@ pub trait Verification: Send {
     /// the corresponding error is returned.
     fn verify(&self, collection: &Collection, root_hash: &str) -> Result<(), SignatureError> {
         let pem_bytes = self.fetch_certificate_chain(&collection)?;
-        let signature_bytes = self.decode_signature(&collection)?;
-        let data_bytes = self.serialize_data(&collection)?;
 
-        let root_hash_bytes = hex::decode(&root_hash.replace(":", ""))
-            .or_else(|err| Err(SignatureError::RootFormatError(err.to_string())))?;
+        let signature_bytes = collection.metadata["signature"]["signature"]
+            .as_str()
+            .unwrap_or("")
+            .as_bytes();
+
+        let data_bytes = self.serialize_data(&collection)?;
 
         let now = epoch_seconds();
         self.verify_nist384p_chain(
             now,
             &pem_bytes,
-            &root_hash_bytes,
+            &root_hash,
             &collection.signer,
             &data_bytes,
             &signature_bytes,
@@ -145,7 +139,7 @@ pub trait Verification: Send {
         &self,
         epoch_seconds: u64,
         pem_bytes: &[u8],
-        root_hash: &[u8],
+        root_hash: &str,
         subject_cn: &str,
         message: &[u8],
         signature: &[u8],
@@ -159,13 +153,13 @@ pub enum SignatureError {
     #[error("certificate could not be downloaded from {}: HTTP {}", response.url, response.status)]
     CertificateDownloadError { response: Response },
     #[error("certificate content could not be parsed: {0}")]
-    CertificateContentError(#[from] x509::X509Error),
+    CertificateContentError(String),
     #[error("root certificate fingerprint has bad format: {0}")]
-    RootFormatError(String),
+    RootHashFormatError(String),
     #[error("root certificate fingerprint does not match: {0}")]
-    CertificateHasWrongRoot(String),
+    InvalidCertificateIssuer(String),
     #[error("certificate alternate subject does not match: {0}")]
-    WrongSignerName(String),
+    InvalidCertificateSubject(String),
     #[error("certificate expired")]
     CertificateExpired,
     #[error("certificate chain could not be verified")]
@@ -175,7 +169,7 @@ pub enum SignatureError {
     #[error("could not hash message: {0}")]
     HashingError(String),
     #[error("signature contains invalid base64: {0}")]
-    BadSignatureContent(#[from] base64::DecodeError),
+    BadSignatureContent(String),
     #[error("signature payload has no x5u field")]
     MissingSignatureField(),
     #[error("HTTP backend issue: {0}")]
@@ -189,7 +183,6 @@ pub enum SignatureError {
 #[cfg(test)]
 mod tests {
     use super::dummy_verifier::DummyVerifier;
-    use super::x509;
     use crate::{Collection, Record, SignatureError, Verification};
     use env_logger;
     use httpmock::MockServer;
@@ -208,6 +201,7 @@ mod tests {
     fn verify_signature(
         mock_server: &MockServer,
         collection: Collection,
+        root_hash: &str,
         certificate: &str,
         expected_result: Result<(), SignatureError>,
     ) {
@@ -225,8 +219,6 @@ mod tests {
 
         #[cfg(feature = "rc_crypto_verifier")]
         verifiers.push(Box::new(super::rc_crypto_verifier::RcCryptoVerifier {}));
-
-        let root_hash = "3C:01:44:6A:BE:90:36:CE:A9:A0:9A:CA:A3:A5:20:AC:62:8F:20:A7:AE:32:CE:86:1C:B2:EF:B7:0F:A0:C7:45";
 
         for verifier in &verifiers {
             assert_eq!(verifier.verify(&collection, root_hash), expected_result);
@@ -306,6 +298,7 @@ mod tests {
 
         let mock_server: MockServer = MockServer::start();
 
+        const ROOT_HASH: &str = "3C:01:44:6A:BE:90:36:CE:A9:A0:9A:CA:A3:A5:20:AC:62:8F:20:A7:AE:32:CE:86:1C:B2:EF:B7:0F:A0:C7:45";
         const VALID_CERTIFICATE: &str = "\
 -----BEGIN CERTIFICATE-----
 MIIDBjCCAougAwIBAgIIFml6g0ldRGowCgYIKoZIzj0EAwMwgaMxCzAJBgNVBAYT
@@ -447,6 +440,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 records: vec![],
                 signer: "remote-settings.content-signature.mozilla.org".to_string(),
             },
+            ROOT_HASH,
             VALID_CERTIFICATE,
             Ok(()),
         );
@@ -467,6 +461,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 records: vec![Record::new(json!({"id": "bad-record"}))],
                 signer: "remote-settings.content-signature.mozilla.org".to_string(),
             },
+            ROOT_HASH,
             VALID_CERTIFICATE,
             Err(SignatureError::MismatchError("".to_string())),
         );
@@ -487,9 +482,10 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 records: vec![],
                 signer: "remote-settings.content-signature.mozilla.org".to_string(),
             },
+            ROOT_HASH,
             VALID_CERTIFICATE,
             Err(SignatureError::BadSignatureContent(
-                base64::DecodeError::InvalidByte(17, 58),
+                base64::DecodeError::InvalidByte(17, 58).to_string(),
             )),
         );
 
@@ -509,10 +505,9 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 records: vec![],
                 signer: "remote-settings.content-signature.mozilla.org".to_string(),
             },
+            ROOT_HASH,
             INVALID_CERTIFICATE,
-            Err(SignatureError::CertificateContentError(
-                x509::X509Error::WrongPEMType("".to_string()),
-            )),
+            Err(SignatureError::CertificateContentError("".to_string())),
         );
 
         // signature verification should fail if signer name is wrong
@@ -531,10 +526,30 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 records: vec![],
                 signer: "normandy.content-signature.mozilla.org".to_string(),
             },
+            ROOT_HASH,
             VALID_CERTIFICATE,
-            Err(SignatureError::WrongSignerName(
-                "normandy.content-signature.mozilla.org".to_string(),
-            )),
+            Err(SignatureError::InvalidCertificateSubject("".to_string())),
+        );
+
+        // signature verification should fail if certificate has wrong root.
+        verify_signature(
+            &mock_server,
+            Collection {
+                bid: "main".to_owned(),
+                cid: "pioneer-study-addons".to_owned(),
+                metadata: json!({
+                    "signature": json!({
+                        "x5u": mock_server.url("/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain"),
+                        "signature": VALID_SIGNATURE
+                    })
+                }),
+                timestamp: 1603992731957,
+                records: vec![],
+                signer: "remote-settings.content-signature.mozilla.org".to_string(),
+            },
+            "00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00",
+            VALID_CERTIFICATE,
+            Err(SignatureError::InvalidCertificateIssuer("".to_string())),
         );
 
         // signature verification should fail if certificate has expired.
@@ -554,6 +569,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
                 records: vec![],
                 signer: "remote-settings.content-signature.mozilla.org".to_string(),
             },
+            ROOT_HASH,
             VALID_CERTIFICATE,
             Err(SignatureError::CertificateExpired),
         );
