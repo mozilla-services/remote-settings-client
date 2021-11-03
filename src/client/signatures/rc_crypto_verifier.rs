@@ -26,8 +26,14 @@ impl Verification for RcCryptoVerifier {
             epoch_seconds,
             &root_hash,
             &subject_cn,
-        )
-        .map_err(|err| match err.kind() {
+        )?;
+        Ok(())
+    }
+}
+
+impl From<rc_crypto::Error> for SignatureError {
+    fn from(err: rc_crypto::Error) -> Self {
+        match err.kind() {
             RcErrorKind::RootHashFormatError(detail) => {
                 SignatureError::RootHashFormatError(detail.to_string())
             }
@@ -49,6 +55,6 @@ impl Verification for RcCryptoVerifier {
             RcErrorKind::CertificateValidityError => SignatureError::CertificateExpired,
             RcErrorKind::CertificateChainError(_) => SignatureError::CertificateTrustError,
             _ => SignatureError::MismatchError(err.to_string()),
-        })
+        }
     }
 }
