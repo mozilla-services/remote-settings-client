@@ -13,12 +13,12 @@ pub mod x509;
 #[cfg(feature = "rc_crypto_verifier")]
 pub mod rc_crypto_verifier;
 
+use super::net::{Requester, Response};
 use crate::client::Collection;
 use log::debug;
 use serde_json::json;
 use thiserror::Error;
 use url::{ParseError as URLParseError, Url};
-use viaduct::{Error as ViaductError, Request, Response};
 
 #[cfg(not(test))]
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -71,17 +71,29 @@ fn epoch_seconds() -> u64 {
 /// # }
 /// ```
 pub trait Verification: Send {
-    fn fetch_certificate_chain(&self, collection: &Collection) -> Result<Vec<u8>, SignatureError> {
+    fn fetch_certificate_chain(
+        &self,
+        requester: &Box<dyn Requester + 'static>,
+        collection: &Collection,
+    ) -> Result<Vec<u8>, SignatureError> {
         // Get public key from collection metadata (PEM URL is `x5u` field).
         let x5u = collection.metadata["signature"]["x5u"]
             .as_str()
             .ok_or(SignatureError::MissingSignatureField())?;
         // Fetch certificate from URL (certificate chain).
         debug!("Fetching certificate {}", x5u);
-        let response = Request::get(Url::parse(x5u)?).send()?;
+
+        let response = requester
+            .get(Url::parse(&x5u)?)
+            .map_err(|_err| SignatureError::HTTPBackendError())?;
+
         if !response.is_success() {
-            return Err(SignatureError::CertificateDownloadError { response });
+            return Err(SignatureError::CertificateDownloadError {
+                url: x5u.to_string(),
+                response,
+            });
         }
+
         // TODO: read server time from headers to compute clock skew and return along
         Ok(response.body)
     }
@@ -107,8 +119,13 @@ pub trait Verification: Send {
     ///
     /// If errors occur during certificate download, parsing, or data serialization, then
     /// the corresponding error is returned.
-    fn verify(&self, collection: &Collection, root_hash: &str) -> Result<(), SignatureError> {
-        let pem_bytes = self.fetch_certificate_chain(collection)?;
+    fn verify(
+        &self,
+        requester: &Box<dyn Requester + 'static>,
+        collection: &Collection,
+        root_hash: &str,
+    ) -> Result<(), SignatureError> {
+        let pem_bytes = self.fetch_certificate_chain(requester, &collection)?;
 
         let signature_bytes = collection.metadata["signature"]["signature"]
             .as_str()
@@ -150,8 +167,8 @@ pub trait Verification: Send {
 pub enum SignatureError {
     #[error("signature mismatch: {0}")]
     MismatchError(String),
-    #[error("certificate could not be downloaded from {}: HTTP {}", response.url, response.status)]
-    CertificateDownloadError { response: Response },
+    #[error("certificate could not be downloaded from {}: HTTP {}", url, response.status)]
+    CertificateDownloadError { url: String, response: Response },
     #[error("certificate content could not be parsed: {0}")]
     CertificateContentError(String),
     #[error("root certificate fingerprint has bad format: {0}")]
@@ -172,8 +189,8 @@ pub enum SignatureError {
     BadSignatureContent(String),
     #[error("signature payload has no x5u field")]
     MissingSignatureField(),
-    #[error("HTTP backend issue: {0}")]
-    HTTPBackendError(#[from] ViaductError),
+    #[error("HTTP backend issue")]
+    HTTPBackendError(),
     #[error("bad URL format: {0}")]
     URLError(#[from] URLParseError),
     #[error("data could not be serialized: {0}")]
@@ -183,14 +200,14 @@ pub enum SignatureError {
 #[cfg(test)]
 mod tests {
     use super::dummy_verifier::DummyVerifier;
+    use crate::client::net::{TestHttpClient, TestResponse};
+    use crate::client::{net::DummyClient, net::Headers, net::Requester};
     use crate::{Collection, Record, SignatureError, Verification};
     use env_logger;
     use httpmock::MockServer;
     use mock_instant::MockClock;
     use serde_json::json;
     use std::time::Duration;
-    use viaduct::set_backend;
-    use viaduct_reqwest::ReqwestBackend;
 
     impl PartialEq for SignatureError {
         fn eq(&self, other: &Self) -> bool {
@@ -206,6 +223,18 @@ mod tests {
         certificate: &str,
         expected_result: Result<(), SignatureError>,
     ) {
+        let test_http_client: Box<dyn Requester + 'static> = Box::new(TestHttpClient::new(
+            false,
+            vec![TestResponse {
+                request_url:
+                    "https://example.com/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain"
+                        .to_string(),
+                response_status: 200,
+                response_body: certificate.as_bytes().to_vec(),
+                response_headers: Headers::new(),
+            }],
+        ));
+
         let mut get_pem_certificate = mock_server.mock(|when, then| {
             when.path(
                 "/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain",
@@ -223,7 +252,10 @@ mod tests {
         verifiers.push(Box::new(super::rc_crypto_verifier::RcCryptoVerifier {}));
 
         for verifier in &verifiers {
-            assert_eq!(verifier.verify(&collection, root_hash), expected_result);
+            assert_eq!(
+                verifier.verify(&test_http_client, &collection, root_hash),
+                expected_result
+            );
         }
 
         get_pem_certificate.assert_hits(verifiers.len());
@@ -232,7 +264,6 @@ mod tests {
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
-        let _ = set_backend(&ReqwestBackend);
     }
 
     #[test]
@@ -246,7 +277,12 @@ mod tests {
             timestamp: 0,
             signer: "".to_string(),
         };
-        let err = verifier.fetch_certificate_chain(&collection).unwrap_err();
+
+        let dummy_client: Box<dyn Requester + 'static> = Box::new(DummyClient);
+
+        let err = verifier
+            .fetch_certificate_chain(&dummy_client, &collection)
+            .unwrap_err();
         match err {
             SignatureError::MissingSignatureField() => (),
             e => panic!("Unexpected error type: {:?}", e),
@@ -254,44 +290,64 @@ mod tests {
     }
 
     #[test]
-    fn test_bad_x5u_urls() {
+    fn test_bad_x5u_urls_request_fails() {
         let verifier = DummyVerifier {};
 
-        let _ = set_backend(&ReqwestBackend);
-        let mock_server = MockServer::start();
-        let mock_server_address = mock_server.url("/file.pem");
-        let mut pem_mock = mock_server.mock(|when, then| {
-            when.path("/file.pem");
-            then.status(404);
-        });
+        let test_client: Box<dyn Requester + 'static> = Box::new(DummyClient);
 
-        let expectations: Vec<(&str, &str)> = vec![
-            ("%^", "bad URL format: relative URL without a base"),
-            (
-                "http://localhost:9999/bad",
-                "Network error: error sending request",
-            ),
-            (&mock_server_address, "/file.pem: HTTP 404"),
-        ];
+        let collection = Collection {
+            bid: "".to_string(),
+            cid: "".to_string(),
+            metadata: json!({
+                "signature": {
+                    "x5u": "https://irrelevavant"
+                }
+            }),
+            records: vec![],
+            timestamp: 0,
+            signer: "".to_string(),
+        };
+        let err = verifier
+            .fetch_certificate_chain(&test_client, &collection)
+            .unwrap_err();
+        assert!(err == SignatureError::HTTPBackendError());
+    }
 
-        for (url, error) in expectations {
-            let collection = Collection {
-                bid: "".to_string(),
-                cid: "".to_string(),
-                metadata: json!({
-                    "signature": {
-                        "x5u": url
-                    }
-                }),
-                records: vec![],
-                timestamp: 0,
-                signer: "".to_string(),
-            };
-            let err = verifier.fetch_certificate_chain(&collection).unwrap_err();
-            assert!(err.to_string().contains(error), "{}", err.to_string());
-        }
+    #[test]
+    fn test_bad_x5u_urls_request_404() {
+        let verifier = DummyVerifier {};
 
-        pem_mock.delete();
+        let url = "https://example.com/file.pem";
+
+        let test_client: Box<dyn Requester + 'static> = Box::new(TestHttpClient::new(
+            false,
+            vec![TestResponse {
+                request_url: url.to_string(),
+                response_status: 404,
+                response_body: vec![],
+                response_headers: Headers::new(),
+            }],
+        ));
+
+        let collection = Collection {
+            bid: "".to_string(),
+            cid: "".to_string(),
+            metadata: json!({
+                "signature": {
+                    "x5u": url.clone()
+                }
+            }),
+            records: vec![],
+            timestamp: 0,
+            signer: "".to_string(),
+        };
+        let err = verifier
+            .fetch_certificate_chain(&test_client, &collection)
+            .unwrap_err();
+
+        assert!(err
+            .to_string()
+            .eq("certificate could not be downloaded from https://example.com/file.pem: HTTP 404"));
     }
 
     #[test]

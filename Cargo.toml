@@ -7,9 +7,10 @@ readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = []
+default = ["viaduct_client"]
 ring_verifier = ["oid-registry", "ring"]
 rc_crypto_verifier = ["rc_crypto"]
+viaduct_client = ["viaduct"]
 
 [dev-dependencies]
 env_logger = "0.9.0"
@@ -24,7 +25,7 @@ hex = "0.4"
 log = "0.4.0"
 url = "2.1"
 # specifying viaduct dependency from git repo since viaduct is not published yet to crates.io
-viaduct = { git = "https://github.com/mozilla/application-services", rev = "v86.2.0"}
+viaduct = { git = "https://github.com/mozilla/application-services", rev = "v86.2.0", optional = true}
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 derive_builder = "0.10"
