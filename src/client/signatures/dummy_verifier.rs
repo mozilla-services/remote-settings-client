@@ -32,4 +32,9 @@ impl Verification for DummyVerifier {
         debug!("default verifier implementation");
         Ok(())
     }
+
+    fn verify_sha256_hash(&self, _content: &[u8], _expected: &[u8]) -> Result<(), SignatureError> {
+        debug!("default verifier implementation");
+        Ok(())
+    }
 }

@@ -4,7 +4,7 @@
 
 use super::{SignatureError, Verification};
 use async_trait::async_trait;
-use rc_crypto::{contentsignature, ErrorKind as RcErrorKind};
+use rc_crypto::{contentsignature, ErrorKind as RcErrorKind, digest};
 
 pub struct RcCryptoVerifier {}
 
@@ -30,6 +30,15 @@ impl Verification for RcCryptoVerifier {
             subject_cn,
         )?;
         Ok(())
+    }
+
+    fn verify_sha256_hash(&self, content: &[u8], expected: &[u8]) -> Result<(), SignatureError> {
+        let hash = digest::digest(&digest::SHA256, content)?;
+        if hash.as_ref() == expected {
+            Ok(())
+        } else {
+            Err(SignatureError::MismatchError("content did not match expected sha256 hash".to_string()))
+        }
     }
 }
 

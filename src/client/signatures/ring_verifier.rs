@@ -129,4 +129,13 @@ impl Verification for RingVerifier {
             Err(err) => Err(SignatureError::MismatchError(err.to_string())),
         }
     }
+
+    fn verify_sha256_hash(&self, content: &[u8], expected: &[u8]) -> Result<(), SignatureError> {
+        let actual = ring::digest::digest(&ring::digest::SHA256, content);
+        if expected == actual.as_ref() {
+            Ok(())
+        } else {
+            Err(SignatureError::MismatchError("content did not match expected sha256 hash".to_string()))
+        }
+    }
 }
