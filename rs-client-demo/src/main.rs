@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use remote_settings_client::client::{FileStorage, RingVerifier};
+use remote_settings_client::client::net::ViaductClient;
 use remote_settings_client::Client;
 use serde::Deserialize;
 pub use url::{ParseError, Url};
@@ -27,6 +28,7 @@ fn main() {
     print!("Fetching records using RS client with default Verifier: ");
 
     let mut client = Client::builder()
+        .http_client(Box::new(ViaductClient))
         .collection_name("url-classifier-skip-urls")
         .build()
         .unwrap();
@@ -59,12 +61,14 @@ fn main() {
             _ => "remote-settings",
         };
 
+        let mut temp_dir = std::env::temp_dir();
         let mut client = Client::builder()
+            .http_client(Box::new(ViaductClient))
             .bucket_name(&collection.bucket)
             .collection_name(&collection.collection)
             .signer_name(format!("{}.content-signature.mozilla.org", signer_name))
             .storage(Box::new(FileStorage {
-                folder: "/tmp".into(),
+                folder: temp_dir.into(),
                 ..FileStorage::default()
             }))
             .verifier(Box::new(RingVerifier {}))
