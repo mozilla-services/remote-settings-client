@@ -78,7 +78,7 @@ pub trait Verification: Send {
             .ok_or(SignatureError::MissingSignatureField())?;
         // Fetch certificate from URL (certificate chain).
         debug!("Fetching certificate {}", x5u);
-        let response = Request::get(Url::parse(&x5u)?).send()?;
+        let response = Request::get(Url::parse(x5u)?).send()?;
         if !response.is_success() {
             return Err(SignatureError::CertificateDownloadError { response });
         }
@@ -108,23 +108,23 @@ pub trait Verification: Send {
     /// If errors occur during certificate download, parsing, or data serialization, then
     /// the corresponding error is returned.
     fn verify(&self, collection: &Collection, root_hash: &str) -> Result<(), SignatureError> {
-        let pem_bytes = self.fetch_certificate_chain(&collection)?;
+        let pem_bytes = self.fetch_certificate_chain(collection)?;
 
         let signature_bytes = collection.metadata["signature"]["signature"]
             .as_str()
             .unwrap_or("")
             .as_bytes();
 
-        let data_bytes = self.serialize_data(&collection)?;
+        let data_bytes = self.serialize_data(collection)?;
 
         let now = epoch_seconds();
         self.verify_nist384p_chain(
             now,
             &pem_bytes,
-            &root_hash,
+            root_hash,
             &collection.signer,
             &data_bytes,
-            &signature_bytes,
+            signature_bytes,
         )
     }
 
@@ -198,6 +198,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::vec_init_then_push)]
     fn verify_signature(
         mock_server: &MockServer,
         collection: Collection,
@@ -212,6 +213,7 @@ mod tests {
             then.body(certificate);
         });
 
+        #[allow(unused_mut, clippy::vec_init_then_push)]
         let mut verifiers: Vec<Box<dyn Verification>> = Vec::new();
 
         #[cfg(feature = "ring_verifier")]
@@ -246,8 +248,8 @@ mod tests {
         };
         let err = verifier.fetch_certificate_chain(&collection).unwrap_err();
         match err {
-            SignatureError::MissingSignatureField() => assert!(true),
-            e => assert!(false, "Unexpected error type: {:?}", e),
+            SignatureError::MissingSignatureField() => (),
+            e => panic!("Unexpected error type: {:?}", e),
         };
     }
 

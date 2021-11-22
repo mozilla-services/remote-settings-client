@@ -62,7 +62,7 @@ impl Record {
     // Return the underlying [`serde_json::Value`].
     pub fn as_object(&self) -> &serde_json::Map<String, serde_json::Value> {
         // Record data is always an object.
-        &self.0.as_object().unwrap()
+        self.0.as_object().unwrap()
     }
 
     // Return the record id.
@@ -338,7 +338,7 @@ impl Client {
             if up_to_date
                 && self
                     .verifier
-                    .verify(&collection, &self.cert_root_hash)
+                    .verify(collection, &self.cert_root_hash)
                     .is_ok()
             {
                 debug!("Local data is up-to-date and valid.");
@@ -487,8 +487,8 @@ mod tests {
             client.server_url
         );
         assert_eq!(client.bucket_name, "main");
-        assert_eq!(client.sync_if_empty, true);
-        assert_eq!(client.trust_local, true);
+        assert!(client.sync_if_empty);
+        assert!(client.trust_local);
         // And Debug format
         assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", signer_name: \"remote-settings.content-signature.mozilla.org\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, backoff_until: None, cert_root_hash: \"97:E8:BA:9C:F1:2F:B3:DE:53:CC:42:A4:E6:57:7E:D6:4D:F4:93:C2:47:B4:14:FE:A0:36:81:8D:38:23:56:0E\" }");
     }
@@ -1060,7 +1060,7 @@ mod tests {
 
         assert_eq!(r.id(), "abc");
         assert_eq!(r.last_modified(), 100);
-        assert_eq!(r.deleted(), false);
+        assert!(!r.deleted());
 
         // Access fields by index
         assert_eq!(r["pi"].as_str(), Some("3.14"));
@@ -1078,14 +1078,14 @@ mod tests {
             "last_modified": 100,
             "deleted": true
         }));
-        assert_eq!(r.deleted(), true);
+        assert!(r.deleted());
 
         let r = Record(json!({
             "id": "abc",
             "last_modified": 100,
             "deleted": "foo"
         }));
-        assert_eq!(r.deleted(), false);
+        assert!(!r.deleted());
     }
 
     #[test]
