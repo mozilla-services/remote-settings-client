@@ -7,7 +7,7 @@ readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [features]
-default = ["viaduct_client"]
+default = []
 ring_verifier = ["oid-registry", "ring"]
 rc_crypto_verifier = ["rc_crypto"]
 viaduct_client = ["viaduct"]
@@ -17,6 +17,12 @@ env_logger = "0.9.0"
 httpmock = "0.6.2"
 viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v86.2.0"}
 mock_instant = "0.2.1"
+# The following line is a workaround suggested on the rust-lang/cargo issue 2911
+# https://github.com/rust-lang/cargo/issues/2911#issuecomment-749580481 to make
+# it possible to enable features for tests. We need to enable the "viaduct_client"
+# feature for the tests because most of the tests use a mocked HTTP server and it
+# would be a non-trivial task to migrate them to use a fake client.
+remote-settings-client = { path = ".", features = ["viaduct_client"] }
 
 [dependencies]
 base64 = "0.13.0"
