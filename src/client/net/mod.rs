@@ -3,7 +3,6 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use std::collections::HashMap;
-use url::Url;
 
 mod dummy_client;
 #[cfg(test)]
@@ -16,6 +15,9 @@ pub(crate) use dummy_client::DummyClient;
 pub(crate) use test_client::{TestHttpClient, TestResponse};
 #[cfg(feature = "viaduct_client")]
 pub use viaduct_client::ViaductClient;
+
+// Re-exported so that consumers don't need depend on Url.
+pub use url::Url;
 
 /// A convenience type to represent raw HTTP headers.
 pub type Headers = HashMap<String, String>;
