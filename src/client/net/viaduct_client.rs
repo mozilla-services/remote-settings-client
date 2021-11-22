@@ -25,14 +25,14 @@ impl Requester for ViaductClient {
                 for h in response.headers {
                     headers
                         .entry(h.name().to_string())
-                        .or_insert(h.value().to_string());
+                        .or_insert_with(|| h.value().to_string());
                 }
 
-                return Ok(Response {
+                Ok(Response {
                     status: response.status,
                     body: response.body,
                     headers,
-                });
+                })
             }
         }
     }

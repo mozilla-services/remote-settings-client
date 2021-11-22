@@ -84,7 +84,7 @@ pub trait Verification: Send {
         debug!("Fetching certificate {}", x5u);
 
         let response = requester
-            .get(Url::parse(&x5u)?)
+            .get(Url::parse(x5u)?)
             .map_err(|_err| SignatureError::HTTPBackendError())?;
 
         if !response.is_success() {
