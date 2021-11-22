@@ -4,7 +4,6 @@
 
 use super::{Headers, Requester, Response};
 
-#[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct TestResponse {
     pub request_url: String,
@@ -14,14 +13,12 @@ pub(crate) struct TestResponse {
 }
 
 /// A dummy HTTP client to use in tests
-#[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct TestHttpClient {
     request_must_fail: bool,
     test_responses: Vec<TestResponse>,
 }
 
-#[cfg(test)]
 impl TestHttpClient {
     pub fn new(request_must_fail: bool, test_responses: Vec<TestResponse>) -> TestHttpClient {
         Self {
@@ -31,7 +28,6 @@ impl TestHttpClient {
     }
 }
 
-#[cfg(test)]
 impl Requester for TestHttpClient {
     fn get(&self, url: url::Url) -> Result<Response, ()> {
         // Let's fail if we are asked to.
