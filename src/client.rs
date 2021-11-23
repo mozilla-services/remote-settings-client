@@ -247,13 +247,14 @@ impl Client {
     ///
     /// # Examples
     /// ```rust
-    /// # use remote_settings_client::Client;
+    /// # use remote_settings_client::{Client, client::net::ViaductClient};
     /// # use viaduct::set_backend;
-    /// # pub use viaduct_reqwest::ReqwestBackend;
-    /// # fn main() {
+    /// # use viaduct_reqwest::ReqwestBackend;
+    /// # #[tokio::main]
+    /// # async fn main() {
     /// # set_backend(&ReqwestBackend).unwrap();
-    /// # let mut client = Client::builder().collection_name("url-classifier-skip-urls").build().unwrap();
-    /// match client.get() {
+    /// # let mut client = Client::builder().http_client(Box::new(ViaductClient)).collection_name("url-classifier-skip-urls").build().unwrap();
+    /// match client.get().await {
     ///   Ok(records) => println!("{:?}", records),
     ///   Err(error) => println!("Error fetching/verifying records: {:?}", error)
     /// };
@@ -273,7 +274,7 @@ impl Client {
     ///
     /// # Errors
     /// If an error occurs while fetching or verifying records, a [`ClientError`] is returned.
-    pub fn get(&mut self) -> Result<Vec<Record>, ClientError> {
+    pub async fn get(&mut self) -> Result<Vec<Record>, ClientError> {
         let storage_key = self._storage_key();
 
         debug!("Retrieve from storage with key={:?}", storage_key);
@@ -289,7 +290,8 @@ impl Client {
                 if !self.trust_local {
                     debug!("Verify signature of local data.");
                     self.verifier
-                        .verify(&self.http_client, &stored, &self.cert_root_hash)?;
+                        .verify(&self.http_client, &stored, &self.cert_root_hash)
+                        .await?;
                 }
 
                 Ok(stored.records)
@@ -297,7 +299,7 @@ impl Client {
             // If storage is empty, go on with sync() (*optional*)
             Err(StorageError::KeyNotFound { .. }) if self.sync_if_empty => {
                 debug!("Synchronize data, without knowning which timestamp to expect.");
-                let collection = self.sync(None)?;
+                let collection = self.sync(None).await?;
                 Ok(collection.records)
             }
             // Otherwise, surface the error.
@@ -313,7 +315,7 @@ impl Client {
     ///
     /// # Errors
     /// If an error occurs while fetching or verifying records, a [`ClientError`] is returned.
-    pub fn sync<T>(&mut self, expected: T) -> Result<Collection, ClientError>
+    pub async fn sync<T>(&mut self, expected: T) -> Result<Collection, ClientError>
     where
         T: Into<Option<u64>>,
     {
@@ -334,7 +336,8 @@ impl Client {
                     &self.server_url,
                     &self.bucket_name,
                     &self.collection_name,
-                )?
+                )
+                .await?
             }
         };
 
@@ -344,6 +347,7 @@ impl Client {
                 && self
                     .verifier
                     .verify(&self.http_client, collection, &self.cert_root_hash)
+                    .await
                     .is_ok()
             {
                 debug!("Local data is up-to-date and valid.");
@@ -364,7 +368,8 @@ impl Client {
             &self.collection_name,
             remote_timestamp,
             local_timestamp,
-        )?;
+        )
+        .await?;
 
         // Keep in state that the server indicated the client
         // to backoff for a while.
@@ -390,7 +395,8 @@ impl Client {
 
         debug!("Verify signature after merge of changes with previous local data.");
         self.verifier
-            .verify(&self.http_client, &collection, &self.cert_root_hash)?;
+            .verify(&self.http_client, &collection, &self.cert_root_hash)
+            .await?;
 
         debug!("Store collection with key={:?}", storage_key);
         let collection_bytes: Vec<u8> = serde_json::to_string(&collection)
@@ -440,6 +446,7 @@ mod tests {
     use super::{
         Client, ClientError, Collection, DummyStorage, DummyVerifier, MemoryStorage, Record,
     };
+    use async_trait::async_trait;
     use env_logger;
     use httpmock::MockServer;
     use serde_json::json;
@@ -459,6 +466,7 @@ mod tests {
 
     struct VerifierWithInvalidSignatureError {}
 
+    #[async_trait]
     impl Verification for VerifierWithInvalidSignatureError {
         fn verify_nist384p_chain(
             &self,
@@ -472,7 +480,7 @@ mod tests {
             Ok(()) // unreachable.
         }
 
-        fn verify(
+        async fn verify(
             &self,
             _requester: &Box<dyn Requester + 'static>,
             _collection: &Collection,
@@ -515,9 +523,9 @@ mod tests {
         assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", signer_name: \"remote-settings.content-signature.mozilla.org\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, backoff_until: None, cert_root_hash: \"97:E8:BA:9C:F1:2F:B3:DE:53:CC:42:A4:E6:57:7E:D6:4D:F4:93:C2:47:B4:14:FE:A0:36:81:8D:38:23:56:0E\", http_client: DummyClient }");
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg_attr(not(feature = "viaduct_client"), ignore)]
-    fn test_get_works_with_dummy_storage() {
+    async fn test_get_works_with_dummy_storage() {
         init();
 
         let mock_server = MockServer::start();
@@ -563,7 +571,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let records = client.get().unwrap();
+        let records = client.get().await.unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
 
@@ -571,7 +579,7 @@ mod tests {
         get_latest_change_mock.assert_hits(1);
 
         // Calling again will pull from network.
-        let records_twice = client.get().unwrap();
+        let records_twice = client.get().await.unwrap();
         assert_eq!(records_twice.len(), 1);
 
         get_changeset_mock.assert_hits(2);
@@ -581,9 +589,9 @@ mod tests {
         get_latest_change_mock.delete();
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg_attr(not(feature = "viaduct_client"), ignore)]
-    fn test_get_with_empty_storage() {
+    async fn test_get_with_empty_storage() {
         init();
 
         let mock_server = MockServer::start();
@@ -629,7 +637,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let records = client.get().unwrap();
+        let records = client.get().await.unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
 
@@ -637,7 +645,7 @@ mod tests {
         get_latest_change_mock.assert();
 
         // Calling again won't pull from network.
-        let records_twice = client.get().unwrap();
+        let records_twice = client.get().await.unwrap();
         assert_eq!(records_twice.len(), 1);
 
         get_changeset_mock.assert_hits(1);
@@ -647,9 +655,9 @@ mod tests {
         get_latest_change_mock.delete();
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg_attr(not(feature = "viaduct_client"), ignore)]
-    fn test_get_empty_storage_no_sync_if_empty() {
+    async fn test_get_empty_storage_no_sync_if_empty() {
         init();
         let mock_server = MockServer::start();
 
@@ -662,16 +670,16 @@ mod tests {
             .build()
             .unwrap();
 
-        let err = client.get().unwrap_err();
+        let err = client.get().await.unwrap_err();
         assert_eq!(
             err.to_string(),
             "storage I/O error: key could not be found: main/url-classifier-skip-urls:collection"
         );
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg_attr(not(feature = "viaduct_client"), ignore)]
-    fn test_get_bad_stored_data() {
+    async fn test_get_bad_stored_data() {
         init();
         let mock_server = MockServer::start();
 
@@ -689,13 +697,13 @@ mod tests {
             .store("main/cfr:collection", b"abc".to_vec())
             .unwrap();
 
-        let err = client.get().unwrap_err();
+        let err = client.get().await.unwrap_err();
         assert_eq!(err.to_string(), "storage I/O error: cannot read from storage: cannot deserialize collection: expected value at line 1 column 1");
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg_attr(not(feature = "viaduct_client"), ignore)]
-    fn test_get_bad_stored_data_if_untrusted() {
+    async fn test_get_bad_stored_data_if_untrusted() {
         init();
         let mock_server = MockServer::start();
 
@@ -724,16 +732,16 @@ mod tests {
             .store("main/search-config:collection", collection_bytes)
             .unwrap();
 
-        let err = client.get().unwrap_err();
+        let err = client.get().await.unwrap_err();
         assert_eq!(
             err.to_string(),
             "content signature could not be verified: signature mismatch: fake invalid signature"
         );
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg_attr(not(feature = "viaduct_client"), ignore)]
-    fn test_get_with_empty_records_list() {
+    async fn test_get_with_empty_records_list() {
         init();
 
         let mock_server = MockServer::start();
@@ -757,17 +765,17 @@ mod tests {
             .build()
             .unwrap();
 
-        client.sync(42).unwrap();
+        client.sync(42).await.unwrap();
 
-        assert_eq!(client.get().unwrap().len(), 0);
+        assert_eq!(client.get().await.unwrap().len(), 0);
 
         get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg_attr(not(feature = "viaduct_client"), ignore)]
-    fn test_get_return_previously_synced_records() {
+    async fn test_get_return_previously_synced_records() {
         init();
 
         let mock_server = MockServer::start();
@@ -795,9 +803,9 @@ mod tests {
             .build()
             .unwrap();
 
-        client.sync(123).unwrap();
+        client.sync(123).await.unwrap();
 
-        let records = client.get().unwrap();
+        let records = client.get().await.unwrap();
 
         assert_eq!(records.len(), 1);
         assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
@@ -806,9 +814,9 @@ mod tests {
         get_changeset_mock.delete();
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg_attr(not(feature = "viaduct_client"), ignore)]
-    fn test_sync_pulls_current_timestamp_from_changes_endpoint_if_none() {
+    async fn test_sync_pulls_current_timestamp_from_changes_endpoint_if_none() {
         init();
 
         let mock_server = MockServer::start();
@@ -851,7 +859,7 @@ mod tests {
             .build()
             .unwrap();
 
-        client.sync(None).unwrap();
+        client.sync(None).await.unwrap();
 
         get_changeset_mock.assert();
         get_latest_change_mock.assert();
@@ -859,9 +867,9 @@ mod tests {
         get_latest_change_mock.delete();
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg_attr(not(feature = "viaduct_client"), ignore)]
-    fn test_sync_uses_specified_expected_parameter() {
+    async fn test_sync_uses_specified_expected_parameter() {
         init();
 
         let mock_server = MockServer::start();
@@ -888,15 +896,15 @@ mod tests {
             .build()
             .unwrap();
 
-        client.sync(13).unwrap();
+        client.sync(13).await.unwrap();
 
         get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg_attr(not(feature = "viaduct_client"), ignore)]
-    fn test_sync_fails_with_unknown_collection() {
+    async fn test_sync_fails_with_unknown_collection() {
         init();
 
         let mock_server = MockServer::start();
@@ -923,7 +931,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let err = client.sync(None).unwrap_err();
+        let err = client.sync(None).await.unwrap_err();
         assert_eq!(
             err.to_string(),
             "API failure: unknown collection: main/url-classifier-skip-urls",
@@ -933,10 +941,10 @@ mod tests {
         get_latest_change_mock.delete();
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg(feature = "ring_verifier")]
     #[cfg_attr(not(feature = "viaduct_client"), ignore)]
-    fn test_sync_uses_x5u_from_metadata_to_verify_signatures() {
+    async fn test_sync_uses_x5u_from_metadata_to_verify_signatures() {
         init();
 
         let mock_server = MockServer::start();
@@ -966,7 +974,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let err = client.sync(42).unwrap_err();
+        let err = client.sync(42).await.unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -977,9 +985,9 @@ mod tests {
         get_changeset_mock.delete();
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg_attr(not(feature = "viaduct_client"), ignore)]
-    fn test_sync_wraps_signature_errors() {
+    async fn test_sync_wraps_signature_errors() {
         init();
 
         let mock_server = MockServer::start();
@@ -1007,7 +1015,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let err = client.sync(42).unwrap_err();
+        let err = client.sync(42).await.unwrap_err();
         assert_eq!(
             err.to_string(),
             "content signature could not be verified: signature mismatch: fake invalid signature"
@@ -1017,9 +1025,9 @@ mod tests {
         get_changeset_mock.delete();
     }
 
-    #[test]
+    #[tokio::test]
     #[cfg_attr(not(feature = "viaduct_client"), ignore)]
-    fn test_sync_returns_collection_with_merged_changes() {
+    async fn test_sync_returns_collection_with_merged_changes() {
         init();
 
         let mock_server = MockServer::start();
@@ -1053,7 +1061,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let res = client.sync(15).unwrap();
+        let res = client.sync(15).await.unwrap();
         assert_eq!(res.records.len(), 3);
 
         get_changeset_mock_1.assert();
@@ -1083,7 +1091,7 @@ mod tests {
             );
         });
 
-        let res = client.sync(42).unwrap();
+        let res = client.sync(42).await.unwrap();
         assert_eq!(res.records.len(), 4);
 
         let record_1_idx = res
@@ -1137,8 +1145,8 @@ mod tests {
         assert!(!r.deleted());
     }
 
-    #[test]
-    fn test_backoff() {
+    #[tokio::test]
+    async fn test_backoff() {
         init();
 
         let mut response_headers = Headers::new();
@@ -1181,10 +1189,10 @@ mod tests {
             .build()
             .unwrap();
 
-        client.sync(777).unwrap();
-        let second_sync = client.sync(888).unwrap_err();
+        client.sync(777).await.unwrap();
+        let second_sync = client.sync(888).await.unwrap_err();
         mock_instant::MockClock::advance(Duration::from_secs(600));
-        client.sync(888).unwrap();
+        client.sync(888).await.unwrap();
 
         assert!(matches!(second_sync, ClientError::BackoffError(_)));
     }
