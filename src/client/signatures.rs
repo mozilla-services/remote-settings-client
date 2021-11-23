@@ -15,6 +15,7 @@ pub mod rc_crypto_verifier;
 
 use super::net::{Requester, Response};
 use crate::client::Collection;
+use async_trait::async_trait;
 use log::debug;
 use serde_json::json;
 use thiserror::Error;
@@ -70,8 +71,9 @@ fn epoch_seconds() -> u64 {
 ///    .build();
 /// # }
 /// ```
-pub trait Verification: Send {
-    fn fetch_certificate_chain(
+#[async_trait]
+pub trait Verification: Send + Sync {
+    async fn fetch_certificate_chain(
         &self,
         requester: &Box<dyn Requester + 'static>,
         collection: &Collection,
@@ -85,6 +87,7 @@ pub trait Verification: Send {
 
         let response = requester
             .get(Url::parse(x5u)?)
+            .await
             .map_err(|_err| SignatureError::HTTPBackendError())?;
 
         if !response.is_success() {
@@ -119,13 +122,13 @@ pub trait Verification: Send {
     ///
     /// If errors occur during certificate download, parsing, or data serialization, then
     /// the corresponding error is returned.
-    fn verify(
+    async fn verify(
         &self,
         requester: &Box<dyn Requester + 'static>,
         collection: &Collection,
         root_hash: &str,
     ) -> Result<(), SignatureError> {
-        let pem_bytes = self.fetch_certificate_chain(requester, collection)?;
+        let pem_bytes = self.fetch_certificate_chain(requester, collection).await?;
 
         let signature_bytes = collection.metadata["signature"]["signature"]
             .as_str()
@@ -216,7 +219,7 @@ mod tests {
     }
 
     #[allow(clippy::vec_init_then_push)]
-    fn verify_signature(
+    async fn verify_signature(
         mock_server: &MockServer,
         collection: Collection,
         root_hash: &str,
@@ -252,7 +255,9 @@ mod tests {
 
         for verifier in &verifiers {
             assert_eq!(
-                verifier.verify(&test_http_client, &collection, root_hash),
+                verifier
+                    .verify(&test_http_client, &collection, root_hash)
+                    .await,
                 expected_result
             );
         }
@@ -265,8 +270,8 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
-    #[test]
-    fn test_missing_x5u() {
+    #[tokio::test]
+    async fn test_missing_x5u() {
         let verifier = DummyVerifier {};
         let collection = Collection {
             bid: "".to_string(),
@@ -281,6 +286,7 @@ mod tests {
 
         let err = verifier
             .fetch_certificate_chain(&dummy_client, &collection)
+            .await
             .unwrap_err();
         match err {
             SignatureError::MissingSignatureField() => (),
@@ -288,8 +294,8 @@ mod tests {
         };
     }
 
-    #[test]
-    fn test_bad_x5u_urls() {
+    #[tokio::test]
+    async fn test_bad_x5u_urls() {
         let verifier = DummyVerifier {};
 
         let _ = viaduct::set_backend(&viaduct_reqwest::ReqwestBackend);
@@ -323,6 +329,7 @@ mod tests {
                 Box::new(crate::client::net::ViaductClient);
             let err = verifier
                 .fetch_certificate_chain(&viaduct_client, &collection)
+                .await
                 .unwrap_err();
             assert!(err.to_string().contains(error), "{}", err.to_string());
         }
@@ -330,8 +337,8 @@ mod tests {
         pem_mock.delete();
     }
 
-    #[test]
-    fn test_bad_x5u_urls_request_404() {
+    #[tokio::test]
+    async fn test_bad_x5u_urls_request_404() {
         let verifier = DummyVerifier {};
 
         let url = "https://example.com/file.pem";
@@ -352,6 +359,7 @@ mod tests {
         };
         let err = verifier
             .fetch_certificate_chain(&test_client, &collection)
+            .await
             .unwrap_err();
 
         assert!(err
@@ -359,8 +367,8 @@ mod tests {
             .eq("certificate could not be downloaded from https://example.com/file.pem: HTTP 404"));
     }
 
-    #[test]
-    fn test_verify_signature() {
+    #[tokio::test]
+    async fn test_verify_signature() {
         init();
 
         let mock_server: MockServer = MockServer::start();
@@ -510,7 +518,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
             ROOT_HASH,
             VALID_CERTIFICATE,
             Ok(()),
-        );
+        ).await;
 
         // signature verification should fail with invalid message
         verify_signature(
@@ -531,7 +539,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
             ROOT_HASH,
             VALID_CERTIFICATE,
             Err(SignatureError::MismatchError("".to_string())),
-        );
+        ).await;
 
         // signature verification should fail with invalid signature
         verify_signature(
@@ -554,7 +562,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
             Err(SignatureError::BadSignatureContent(
                 base64::DecodeError::InvalidByte(17, 58).to_string(),
             )),
-        );
+        ).await;
 
         // signature verification should fail with invalid certificate
         verify_signature(
@@ -575,7 +583,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
             ROOT_HASH,
             INVALID_CERTIFICATE,
             Err(SignatureError::CertificateContentError("".to_string())),
-        );
+        ).await;
 
         // signature verification should fail if signer name is wrong
         verify_signature(
@@ -596,7 +604,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
             ROOT_HASH,
             VALID_CERTIFICATE,
             Err(SignatureError::InvalidCertificateSubject("".to_string())),
-        );
+        ).await;
 
         // signature verification should fail if certificate has wrong root.
         verify_signature(
@@ -617,7 +625,7 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
             "00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00",
             VALID_CERTIFICATE,
             Err(SignatureError::InvalidCertificateIssuer("".to_string())),
-        );
+        ).await;
 
         // signature verification should fail if certificate has expired.
         MockClock::set_time(Duration::default());
@@ -639,6 +647,6 @@ HszKVANqXQIxAIygMaeTiD9figEusmHMthBdFoIoHk31x4MHukAy+TWZ863X6/V2
             ROOT_HASH,
             VALID_CERTIFICATE,
             Err(SignatureError::CertificateExpired),
-        );
+        ).await;
     }
 }
