@@ -7,7 +7,7 @@ A Rust Remote Settings Client to fetch collection data.
 <!-- - Cross-Platform
 - Robust -->
 
-Relies on Mozilla's [viaduct](https://github.com/mozilla/application-services/tree/v75.0.0/components/viaduct) for its pluggable HTTP backend (eg. `reqwest` or `FFI` on Android).
+Relies on Mozilla's [viaduct](https://github.com/mozilla/application-services/tree/v87.0.0/components/viaduct) for its pluggable HTTP backend (eg. `reqwest` or `FFI` on Android).
 
 ## Quick start
 
@@ -16,8 +16,8 @@ Relies on Mozilla's [viaduct](https://github.com/mozilla/application-services/tr
 ```toml
 [dependencies]
 remote-settings-client = { version = "0.1", features = ["ring_verifier"] }
-viaduct = { git = "https://github.com/mozilla/application-services", rev = "v75.2.0"}
-viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v75.2.0"}
+viaduct = { git = "https://github.com/mozilla/application-services", rev = "v87.0.0"}
+viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v87.0.0"}
 ```
 
 Minimal example:
