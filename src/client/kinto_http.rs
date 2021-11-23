@@ -129,7 +129,7 @@ pub fn get_changeset(
         };
 
         // Error due to the client. The request must be modified.
-        if (400..500).contains(&response.status) {
+        if response.is_client_error() {
             return Err(KintoError::ClientRequestError {
                 url,
                 response,
@@ -137,7 +137,7 @@ pub fn get_changeset(
             });
         }
 
-        if (500..600).contains(&response.status) {
+        if response.is_server_error() {
             let retry_after = response
                 .headers
                 .get("retry-after")
@@ -169,8 +169,8 @@ pub fn get_changeset(
 #[cfg(test)]
 mod tests {
     use super::{get_changeset, get_latest_change_timestamp, KintoError};
-    use httpmock::MockServer;
     use crate::client::net::{Headers, Requester, TestHttpClient, TestResponse};
+    use httpmock::MockServer;
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -180,11 +180,10 @@ mod tests {
     fn test_fetch() {
         init();
 
-        let test_client: Box<dyn Requester + 'static> = Box::new(TestHttpClient::new(
-            false,
-            vec![TestResponse {
+        let test_client: Box<dyn Requester + 'static> =
+            Box::new(TestHttpClient::new(vec![TestResponse {
                 request_url:
-                    "https://example.com/buckets/monitor/collections/changes/changeset?_expected=0"
+                    "https://example.com/v1/buckets/monitor/collections/changes/changeset?_expected=0"
                         .to_string(),
                 response_status: 200,
                 response_body: r#"{
@@ -203,12 +202,11 @@ mod tests {
                 .as_bytes()
                 .to_vec(),
                 response_headers: Headers::new(),
-            }],
-        ));
+            }]));
 
         let res = get_latest_change_timestamp(
             &test_client,
-            "https://example.com",
+            "https://example.com/v1",
             "main",
             "url-classifier-skip-urls",
         )
@@ -221,18 +219,12 @@ mod tests {
     fn test_bad_url() {
         init();
 
-        let test_client: Box<dyn Requester + 'static> = Box::new(TestHttpClient::new(
-            true,
-            vec![TestResponse {
-                request_url: "%^".to_string(),
-                response_status: 500,
-                response_body: vec![],
-                response_headers: Headers::new(),
-            }],
-        ));
+        let _ = viaduct::set_backend(&viaduct_reqwest::ReqwestBackend);
+        let viaduct_client: Box<dyn Requester + 'static> =
+            Box::new(crate::client::net::ViaductClient);
 
         let err =
-            get_latest_change_timestamp(&test_client, "%^", "main", "url-classifier-skip-urls")
+            get_latest_change_timestamp(&viaduct_client, "%^", "main", "url-classifier-skip-urls")
                 .unwrap_err();
         assert_eq!(
             err.to_string(),
@@ -244,9 +236,8 @@ mod tests {
     fn test_bad_json() {
         init();
 
-        let test_client: Box<dyn Requester + 'static> = Box::new(TestHttpClient::new(
-            false,
-            vec![TestResponse {
+        let test_client: Box<dyn Requester + 'static> =
+            Box::new(TestHttpClient::new(vec![TestResponse {
                 request_url:
                     "https://example.com/buckets/monitor/collections/changes/changeset?_expected=0"
                         .to_string(),
@@ -257,8 +248,7 @@ mod tests {
                 .as_bytes()
                 .to_vec(),
                 response_headers: Headers::new(),
-            }],
-        ));
+            }]));
 
         let err = get_latest_change_timestamp(
             &test_client,
@@ -274,11 +264,10 @@ mod tests {
     fn test_bad_timestamp() {
         init();
 
-        let test_client: Box<dyn Requester + 'static> = Box::new(TestHttpClient::new(
-            false,
-            vec![TestResponse {
+        let test_client: Box<dyn Requester + 'static> =
+            Box::new(TestHttpClient::new(vec![TestResponse {
                 request_url:
-                    "https://example.com/buckets/monitor/collections/changes/changeset?_expected=0"
+                    "https://example.com/v1/buckets/monitor/collections/changes/changeset?_expected=0"
                         .to_string(),
                 response_status: 200,
                 response_body: r#"{
@@ -297,12 +286,11 @@ mod tests {
                 .as_bytes()
                 .to_vec(),
                 response_headers: Headers::new(),
-            }],
-        ));
+            }]));
 
         let err = get_latest_change_timestamp(
             &test_client,
-            "https://example.com",
+            "https://example.com/v1",
             "main",
             "url-classifier-skip-urls",
         )
@@ -323,11 +311,10 @@ mod tests {
     fn test_client_error_response() {
         init();
 
-        let test_client: Box<dyn Requester + 'static> = Box::new(TestHttpClient::new(
-            false,
-            vec![TestResponse {
+        let test_client: Box<dyn Requester + 'static> =
+            Box::new(TestHttpClient::new(vec![TestResponse {
                 request_url:
-                    "https://example.com/buckets/main/collections/cfr/changeset?_expected=451"
+                    "https://example.com/v1/buckets/main/collections/cfr/changeset?_expected=451"
                         .to_string(),
                 response_status: 400,
                 response_body: r#"{
@@ -343,12 +330,11 @@ mod tests {
                 .as_bytes()
                 .to_vec(),
                 response_headers: Headers::new(),
-            }],
-        ));
+            }]));
 
         let err = get_changeset(
             &test_client,
-            "https://example.com",
+            "https://example.com/v1",
             "main",
             "cfr",
             451,
@@ -358,7 +344,7 @@ mod tests {
 
         match err {
             KintoError::ClientRequestError { ref info, .. } => {
-                assert_eq!(err.to_string(), "invalid request on GET https://example.com/buckets/main/collections/cfr/changeset?_expected=451: HTTP 400 Bad request: Bad value \'0\' for \'_expected\' (#123)");
+                assert_eq!(err.to_string(), "invalid request on GET https://example.com/v1/buckets/main/collections/cfr/changeset?_expected=451: HTTP 400 Bad request: Bad value \'0\' for \'_expected\' (#123)");
                 assert_eq!(info.errno, 123);
                 assert_eq!(info.code, 400);
                 assert_eq!(info.error, "Bad request");
@@ -376,11 +362,10 @@ mod tests {
         let mut response_headers = Headers::new();
         response_headers.insert("retry-after".to_string(), "360".to_string());
 
-        let test_client: Box<dyn Requester + 'static> = Box::new(TestHttpClient::new(
-            false,
-            vec![TestResponse {
+        let test_client: Box<dyn Requester + 'static> =
+            Box::new(TestHttpClient::new(vec![TestResponse {
                 request_url:
-                    "https://example.com/buckets/main/collections/cfr/changeset?_expected=42"
+                    "https://example.com/v1/buckets/main/collections/cfr/changeset?_expected=42"
                         .to_string(),
                 response_status: 503,
                 response_body: r#"{
@@ -392,11 +377,17 @@ mod tests {
                 .as_bytes()
                 .to_vec(),
                 response_headers,
-            }],
-        ));
+            }]));
 
-        let err = get_changeset(&test_client, "https://example.com", "main", "cfr", 42, None)
-            .unwrap_err();
+        let err = get_changeset(
+            &test_client,
+            "https://example.com/v1",
+            "main",
+            "cfr",
+            42,
+            None,
+        )
+        .unwrap_err();
 
         match err {
             KintoError::ServerError {
@@ -404,7 +395,7 @@ mod tests {
                 ref info,
                 ..
             } => {
-                assert_eq!(err.to_string(), "a server error occured on GET https://example.com/buckets/main/collections/cfr/changeset?_expected=42: HTTP 503 Service unavailable: Boom (#999)");
+                assert_eq!(err.to_string(), "a server error occured on GET https://example.com/v1/buckets/main/collections/cfr/changeset?_expected=42: HTTP 503 Service unavailable: Boom (#999)");
                 assert_eq!(retry_after, Some(360));
                 assert_eq!(info.errno, 999);
                 assert_eq!(info.code, 503);
@@ -448,8 +439,11 @@ mod tests {
         });
 
         let _ = viaduct::set_backend(&viaduct_reqwest::ReqwestBackend);
-        let viaduct_client: Box<dyn Requester + 'static> = Box::new(crate::client::net::ViaductClient);
-        let res = get_latest_change_timestamp(&viaduct_client, &mock_server.url(""), "main", "crlite").unwrap();
+        let viaduct_client: Box<dyn Requester + 'static> =
+            Box::new(crate::client::net::ViaductClient);
+        let res =
+            get_latest_change_timestamp(&viaduct_client, &mock_server.url(""), "main", "crlite")
+                .unwrap();
 
         assert_eq!(res, 5678);
 

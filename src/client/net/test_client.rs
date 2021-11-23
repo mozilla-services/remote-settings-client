@@ -15,26 +15,17 @@ pub(crate) struct TestResponse {
 /// A dummy HTTP client to use in tests
 #[derive(Debug)]
 pub(crate) struct TestHttpClient {
-    request_must_fail: bool,
     test_responses: Vec<TestResponse>,
 }
 
 impl TestHttpClient {
-    pub fn new(request_must_fail: bool, test_responses: Vec<TestResponse>) -> TestHttpClient {
-        Self {
-            request_must_fail,
-            test_responses,
-        }
+    pub fn new(test_responses: Vec<TestResponse>) -> TestHttpClient {
+        Self { test_responses }
     }
 }
 
 impl Requester for TestHttpClient {
     fn get(&self, url: url::Url) -> Result<Response, ()> {
-        // Let's fail if we are asked to.
-        if self.request_must_fail {
-            return Err(());
-        }
-
         for r in &self.test_responses {
             // Only respond to the specific URL if we're told to.
             if url.to_string().eq(&r.request_url) {

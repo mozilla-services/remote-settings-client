@@ -40,6 +40,16 @@ impl Response {
     pub fn is_success(&self) -> bool {
         (200..=299).contains(&self.status)
     }
+
+    /// Whether or not the response code represents HTTP client error.
+    pub fn is_client_error(&self) -> bool {
+        (400..=499).contains(&self.status)
+    }
+
+    /// Whether or not the response code represents HTTP server error.
+    pub fn is_server_error(&self) -> bool {
+        (500..=599).contains(&self.status)
+    }
 }
 
 /// A description of a component used to perform an HTTP request.

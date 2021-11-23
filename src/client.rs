@@ -516,7 +516,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "viaduct_client"), ignore)]
     fn test_get_works_with_dummy_storage() {
         init();
 
@@ -582,7 +581,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "viaduct_client"), ignore)]
     fn test_get_with_empty_storage() {
         init();
 
@@ -648,7 +646,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "viaduct_client"), ignore)]
     fn test_get_empty_storage_no_sync_if_empty() {
         init();
         let mock_server = MockServer::start();
@@ -670,7 +667,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "viaduct_client"), ignore)]
     fn test_get_bad_stored_data() {
         init();
         let mock_server = MockServer::start();
@@ -694,7 +690,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "viaduct_client"), ignore)]
     fn test_get_bad_stored_data_if_untrusted() {
         init();
         let mock_server = MockServer::start();
@@ -732,7 +727,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "viaduct_client"), ignore)]
     fn test_get_with_empty_records_list() {
         init();
 
@@ -766,7 +760,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "viaduct_client"), ignore)]
     fn test_get_return_previously_synced_records() {
         init();
 
@@ -807,7 +800,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "viaduct_client"), ignore)]
     fn test_sync_pulls_current_timestamp_from_changes_endpoint_if_none() {
         init();
 
@@ -860,7 +852,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "viaduct_client"), ignore)]
     fn test_sync_uses_specified_expected_parameter() {
         init();
 
@@ -895,7 +886,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "viaduct_client"), ignore)]
     fn test_sync_fails_with_unknown_collection() {
         init();
 
@@ -935,7 +925,6 @@ mod tests {
 
     #[test]
     #[cfg(feature = "ring_verifier")]
-    #[cfg_attr(not(feature = "viaduct_client"), ignore)]
     fn test_sync_uses_x5u_from_metadata_to_verify_signatures() {
         init();
 
@@ -978,7 +967,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "viaduct_client"), ignore)]
     fn test_sync_wraps_signature_errors() {
         init();
 
@@ -1018,7 +1006,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(not(feature = "viaduct_client"), ignore)]
     fn test_sync_returns_collection_with_merged_changes() {
         init();
 
@@ -1144,7 +1131,7 @@ mod tests {
         let mut response_headers = Headers::new();
         response_headers.insert("backoff".to_string(), "300".to_string());
 
-        let fake_server = "https://www.example.com";
+        let fake_server = "https://www.example.com/v1";
 
         let test_responses: Vec<_> = [777, 888]
             .iter()
@@ -1172,7 +1159,7 @@ mod tests {
             .collect();
 
         let test_client: Box<dyn Requester + 'static> =
-            Box::new(TestHttpClient::new(false, test_responses));
+            Box::new(TestHttpClient::new(test_responses));
 
         let mut client = Client::builder()
             .server_url(fake_server)

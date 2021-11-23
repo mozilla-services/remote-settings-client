@@ -224,7 +224,6 @@ mod tests {
         expected_result: Result<(), SignatureError>,
     ) {
         let test_http_client: Box<dyn Requester + 'static> = Box::new(TestHttpClient::new(
-            false,
             vec![TestResponse {
                 request_url:
                     "https://example.com/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain"
@@ -302,10 +301,7 @@ mod tests {
         });
         let expectations: Vec<(&str, &str)> = vec![
             ("%^", "bad URL format: relative URL without a base"),
-            (
-                "http://localhost:9999/bad",
-                "HTTP backend issue",
-            ),
+            ("http://localhost:9999/bad", "HTTP backend issue"),
             (&mock_server_address, "/file.pem: HTTP 404"),
         ];
 
@@ -323,8 +319,11 @@ mod tests {
                 signer: "".to_string(),
             };
 
-            let viaduct_client: Box<dyn Requester + 'static> = Box::new(crate::client::net::ViaductClient);
-            let err = verifier.fetch_certificate_chain(&viaduct_client, &collection).unwrap_err();
+            let viaduct_client: Box<dyn Requester + 'static> =
+                Box::new(crate::client::net::ViaductClient);
+            let err = verifier
+                .fetch_certificate_chain(&viaduct_client, &collection)
+                .unwrap_err();
             assert!(err.to_string().contains(error), "{}", err.to_string());
         }
 
@@ -337,15 +336,7 @@ mod tests {
 
         let url = "https://example.com/file.pem";
 
-        let test_client: Box<dyn Requester + 'static> = Box::new(TestHttpClient::new(
-            false,
-            vec![TestResponse {
-                request_url: url.to_string(),
-                response_status: 404,
-                response_body: vec![],
-                response_headers: Headers::new(),
-            }],
-        ));
+        let test_client: Box<dyn Requester + 'static> = Box::new(TestHttpClient::new(vec![]));
 
         let collection = Collection {
             bid: "".to_string(),
