@@ -3,12 +3,14 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::{SignatureError, Verification};
+use async_trait::async_trait;
 use rc_crypto::{contentsignature, ErrorKind as RcErrorKind};
 
 pub struct RcCryptoVerifier {}
 
 impl RcCryptoVerifier {}
 
+#[async_trait]
 impl Verification for RcCryptoVerifier {
     fn verify_nist384p_chain(
         &self,

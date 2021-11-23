@@ -10,13 +10,16 @@ readme = "README.md"
 default = []
 ring_verifier = ["oid-registry", "ring"]
 rc_crypto_verifier = ["rc_crypto"]
-viaduct_client = ["viaduct"]
+# Using viaduct requires using tokio as well because we need to use the
+# `spawn_blocking` API.
+viaduct_client = ["viaduct", "tokio"]
 
 [dev-dependencies]
 env_logger = "0.9.0"
 httpmock = "0.6.2"
 viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v86.2.0"}
 mock_instant = "0.2.1"
+tokio = { version = "1.8.2", features = ["macros"] }
 # The following line is a workaround suggested on the rust-lang/cargo issue 2911
 # https://github.com/rust-lang/cargo/issues/2911#issuecomment-749580481 to make
 # it possible to enable features for tests. We need to enable the "viaduct_client"
@@ -25,6 +28,7 @@ mock_instant = "0.2.1"
 remote-settings-client = { path = ".", features = ["viaduct_client"] }
 
 [dependencies]
+async-trait = "0.1.51"
 base64 = "0.13.0"
 canonical_json = "0.4"
 hex = "0.4"
@@ -36,6 +40,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 derive_builder = "0.10"
 thiserror = "1.0"
+tokio = { version = "1.8.2", features = ["rt"], optional = true }
 
 # ring_verifier
 ring = { version = "0.16", optional = true }

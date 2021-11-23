@@ -2,8 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use remote_settings_client::client::{FileStorage, RingVerifier};
 use remote_settings_client::client::net::ViaductClient;
+use remote_settings_client::client::{FileStorage, RingVerifier};
 use remote_settings_client::Client;
 use serde::Deserialize;
 pub use url::{ParseError, Url};
@@ -21,7 +21,8 @@ pub struct LatestChangeEntry {
     pub collection: String,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
     set_backend(&ReqwestBackend).unwrap();
 
@@ -33,13 +34,16 @@ fn main() {
         .build()
         .unwrap();
 
-    match client.get() {
+    match client.get().await {
         Ok(records) => println!("{} records.", records.len()),
         Err(error) => println!("FAILED ({:?})", error),
     };
 
     let url = "https://firefox.settings.services.mozilla.com/v1/buckets/monitor/collections/changes/changeset?_expected=0";
-    let response = Request::get(Url::parse(&url).unwrap()).send().unwrap();
+    let response =
+        tokio::task::spawn_blocking(move || Request::get(Url::parse(url).unwrap()).send().unwrap())
+            .await
+            .unwrap();
     let collections: KintoPluralResponse<LatestChangeEntry> = response.json().unwrap();
 
     let mut failed_fetch = Vec::new();
@@ -61,21 +65,21 @@ fn main() {
             _ => "remote-settings",
         };
 
-        let mut temp_dir = std::env::temp_dir();
+        let temp_dir = std::env::temp_dir();
         let mut client = Client::builder()
             .http_client(Box::new(ViaductClient))
             .bucket_name(&collection.bucket)
             .collection_name(&collection.collection)
             .signer_name(format!("{}.content-signature.mozilla.org", signer_name))
             .storage(Box::new(FileStorage {
-                folder: temp_dir.into(),
+                folder: temp_dir,
                 ..FileStorage::default()
             }))
             .verifier(Box::new(RingVerifier {}))
             .build()
             .unwrap();
 
-        match client.get() {
+        match client.get().await {
             Ok(records) => println!("{} records.", records.len()),
             Err(error) => {
                 println!("FAILED ({:?})", error);
