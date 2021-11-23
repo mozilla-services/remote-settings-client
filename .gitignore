@@ -10,3 +10,6 @@
 **/*.rs.bk
 
 .vscode/*
+
+# Where we build NSS
+libs/

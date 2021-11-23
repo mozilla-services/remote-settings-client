@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 mod kinto_http;
+pub mod net;
 mod signatures;
 mod storage;
 
@@ -62,7 +63,7 @@ impl Record {
     // Return the underlying [`serde_json::Value`].
     pub fn as_object(&self) -> &serde_json::Map<String, serde_json::Value> {
         // Record data is always an object.
-        &self.0.as_object().unwrap()
+        self.0.as_object().unwrap()
     }
 
     // Return the record id.
@@ -210,6 +211,8 @@ pub struct Client {
     backoff_until: Option<Instant>,
     #[builder(default = "PROD_CERT_ROOT_HASH.to_owned()")]
     cert_root_hash: String,
+    #[builder(default = "Box::new(net::DummyClient)")]
+    http_client: Box<dyn net::Requester + 'static>,
 }
 
 impl Default for Client {
@@ -285,7 +288,8 @@ impl Client {
                 // Verify signature of stored data (*optional*)
                 if !self.trust_local {
                     debug!("Verify signature of local data.");
-                    self.verifier.verify(&stored, &self.cert_root_hash)?;
+                    self.verifier
+                        .verify(&self.http_client, &stored, &self.cert_root_hash)?;
                 }
 
                 Ok(stored.records)
@@ -326,6 +330,7 @@ impl Client {
             None => {
                 debug!("Obtain current timestamp.");
                 get_latest_change_timestamp(
+                    &self.http_client,
                     &self.server_url,
                     &self.bucket_name,
                     &self.collection_name,
@@ -338,7 +343,7 @@ impl Client {
             if up_to_date
                 && self
                     .verifier
-                    .verify(&collection, &self.cert_root_hash)
+                    .verify(&self.http_client, collection, &self.cert_root_hash)
                     .is_ok()
             {
                 debug!("Local data is up-to-date and valid.");
@@ -353,6 +358,7 @@ impl Client {
         };
 
         let changeset = get_changeset(
+            &self.http_client,
             &self.server_url,
             &self.bucket_name,
             &self.collection_name,
@@ -383,7 +389,8 @@ impl Client {
         };
 
         debug!("Verify signature after merge of changes with previous local data.");
-        self.verifier.verify(&collection, &self.cert_root_hash)?;
+        self.verifier
+            .verify(&self.http_client, &collection, &self.cert_root_hash)?;
 
         debug!("Store collection with key={:?}", storage_key);
         let collection_bytes: Vec<u8> = serde_json::to_string(&collection)
@@ -428,6 +435,7 @@ fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -
 }
 #[cfg(test)]
 mod tests {
+    use super::net::{Headers, Requester, TestHttpClient, TestResponse};
     use super::signatures::{SignatureError, Verification};
     use super::{
         Client, ClientError, Collection, DummyStorage, DummyVerifier, MemoryStorage, Record,
@@ -436,8 +444,15 @@ mod tests {
     use httpmock::MockServer;
     use serde_json::json;
     use std::time::Duration;
+
+    #[cfg(feature = "viaduct_client")]
     use viaduct::set_backend;
+
+    #[cfg(feature = "viaduct_client")]
     use viaduct_reqwest::ReqwestBackend;
+
+    #[cfg(feature = "viaduct_client")]
+    use super::net::ViaductClient;
 
     #[cfg(feature = "ring_verifier")]
     pub use crate::client::signatures::ring_verifier::RingVerifier;
@@ -457,7 +472,12 @@ mod tests {
             Ok(()) // unreachable.
         }
 
-        fn verify(&self, _collection: &Collection, _: &str) -> Result<(), SignatureError> {
+        fn verify(
+            &self,
+            _requester: &Box<dyn Requester + 'static>,
+            _collection: &Collection,
+            _: &str,
+        ) -> Result<(), SignatureError> {
             Err(SignatureError::MismatchError(
                 "fake invalid signature".to_owned(),
             ))
@@ -466,6 +486,8 @@ mod tests {
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
+
+        #[cfg(feature = "viaduct_client")]
         let _ = set_backend(&ReqwestBackend);
     }
 
@@ -487,10 +509,10 @@ mod tests {
             client.server_url
         );
         assert_eq!(client.bucket_name, "main");
-        assert_eq!(client.sync_if_empty, true);
-        assert_eq!(client.trust_local, true);
+        assert!(client.sync_if_empty);
+        assert!(client.trust_local);
         // And Debug format
-        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", signer_name: \"remote-settings.content-signature.mozilla.org\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, backoff_until: None, cert_root_hash: \"97:E8:BA:9C:F1:2F:B3:DE:53:CC:42:A4:E6:57:7E:D6:4D:F4:93:C2:47:B4:14:FE:A0:36:81:8D:38:23:56:0E\" }");
+        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", signer_name: \"remote-settings.content-signature.mozilla.org\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, backoff_until: None, cert_root_hash: \"97:E8:BA:9C:F1:2F:B3:DE:53:CC:42:A4:E6:57:7E:D6:4D:F4:93:C2:47:B4:14:FE:A0:36:81:8D:38:23:56:0E\", http_client: DummyClient }");
     }
 
     #[test]
@@ -533,6 +555,7 @@ mod tests {
 
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
             .collection_name("top-sites")
             .storage(Box::new(DummyStorage {}))
             .verifier(Box::new(DummyVerifier {}))
@@ -597,6 +620,7 @@ mod tests {
 
         let mut client = Client::builder()
             .server_url(&mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
             .collection_name("pocket")
             .storage(Box::new(MemoryStorage::new()))
             .verifier(Box::new(DummyVerifier {}))
@@ -628,6 +652,7 @@ mod tests {
 
         let mut client = Client::builder()
             .server_url(mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
             .collection_name("url-classifier-skip-urls")
             // Explicitly disable sync if empty.
             .sync_if_empty(false)
@@ -648,6 +673,7 @@ mod tests {
 
         let mut client = Client::builder()
             .server_url(mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
             .collection_name("cfr")
             .storage(Box::new(MemoryStorage::new()))
             .sync_if_empty(false)
@@ -670,6 +696,7 @@ mod tests {
 
         let mut client = Client::builder()
             .server_url(mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
             .collection_name("search-config")
             .storage(Box::new(MemoryStorage::new()))
             .verifier(Box::new(VerifierWithInvalidSignatureError {}))
@@ -718,6 +745,7 @@ mod tests {
 
         let mut client = Client::builder()
             .server_url(mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
             .collection_name("regions")
             .storage(Box::new(MemoryStorage::new()))
             .build()
@@ -754,6 +782,7 @@ mod tests {
 
         let mut client = Client::builder()
             .server_url(mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
             .collection_name("blocklist")
             .storage(Box::new(MemoryStorage::new()))
             .build()
@@ -809,6 +838,7 @@ mod tests {
 
         let mut client = Client::builder()
             .server_url(mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
             .collection_name("fxmonitor")
             .build()
             .unwrap();
@@ -844,6 +874,7 @@ mod tests {
 
         let mut client = Client::builder()
             .server_url(mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
             .collection_name("pioneers")
             .build()
             .unwrap();
@@ -877,6 +908,7 @@ mod tests {
 
         let mut client = Client::builder()
             .server_url(mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
             .collection_name("url-classifier-skip-urls")
             .build()
             .unwrap();
@@ -917,6 +949,7 @@ mod tests {
 
         let mut client = Client::builder()
             .server_url(mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
             .collection_name("onecrl")
             .verifier(Box::new(RingVerifier {}))
             .build()
@@ -932,6 +965,7 @@ mod tests {
         get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
+
     #[test]
     fn test_sync_wraps_signature_errors() {
         init();
@@ -955,6 +989,7 @@ mod tests {
 
         let mut client = Client::builder()
             .server_url(mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
             .collection_name("password-recipes")
             .verifier(Box::new(VerifierWithInvalidSignatureError {}))
             .build()
@@ -999,6 +1034,7 @@ mod tests {
 
         let mut client = Client::builder()
             .server_url(mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
             .collection_name("onecrl")
             .storage(Box::new(MemoryStorage::new()))
             .build()
@@ -1060,7 +1096,7 @@ mod tests {
 
         assert_eq!(r.id(), "abc");
         assert_eq!(r.last_modified(), 100);
-        assert_eq!(r.deleted(), false);
+        assert!(!r.deleted());
 
         // Access fields by index
         assert_eq!(r["pi"].as_str(), Some("3.14"));
@@ -1078,42 +1114,56 @@ mod tests {
             "last_modified": 100,
             "deleted": true
         }));
-        assert_eq!(r.deleted(), true);
+        assert!(r.deleted());
 
         let r = Record(json!({
             "id": "abc",
             "last_modified": 100,
             "deleted": "foo"
         }));
-        assert_eq!(r.deleted(), false);
+        assert!(!r.deleted());
     }
 
     #[test]
     fn test_backoff() {
         init();
 
-        let mock_server = MockServer::start();
-        let get_changeset_mocks: Vec<_> = [777, 888]
+        let mut response_headers = Headers::new();
+        response_headers.insert("backoff".to_string(), "300".to_string());
+
+        let fake_server = "https://www.example.com/v1";
+
+        let test_responses: Vec<_> = [777, 888]
             .iter()
-            .map(|&expected| {
-                mock_server.mock(|when, then| {
-                    when.path("/buckets/main/collections/nimbus/changeset")
-                        .query_param("_expected".into(), format!("{}", expected));
-                    then.header("Backoff", "300").json_body(json!(
-                        {
-                            "metadata": {},
-                            "changes": [{
-                                "id": "record-1",
-                                "last_modified": expected
-                            }],
-                            "timestamp": expected
-                        }
-                    ));
-                })
+            .map(|&expected| TestResponse {
+                request_url: format!(
+                    "{}/buckets/main/collections/nimbus/changeset?_expected={}",
+                    fake_server, expected
+                ),
+                response_status: 200,
+                response_body: json!(
+                    {
+                        "metadata": {},
+                        "changes": [{
+                            "id": "record-1",
+                            "last_modified": expected
+                        }],
+                        "timestamp": expected
+                    }
+                )
+                .to_string()
+                .as_bytes()
+                .to_vec(),
+                response_headers: response_headers.clone(),
             })
             .collect();
+
+        let test_client: Box<dyn Requester + 'static> =
+            Box::new(TestHttpClient::new(test_responses));
+
         let mut client = Client::builder()
-            .server_url(mock_server.url(""))
+            .server_url(fake_server)
+            .http_client(test_client)
             .collection_name("nimbus")
             .build()
             .unwrap();
@@ -1124,9 +1174,5 @@ mod tests {
         client.sync(888).unwrap();
 
         assert!(matches!(second_sync, ClientError::BackoffError(_)));
-        for mut mock in get_changeset_mocks {
-            mock.assert();
-            mock.delete();
-        }
     }
 }

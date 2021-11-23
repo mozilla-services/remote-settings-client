@@ -53,7 +53,7 @@ impl FileStorage {
 
 impl Storage for FileStorage {
     fn store(&mut self, key: &str, value: Vec<u8>) -> Result<(), StorageError> {
-        let path = self._pathfor(&key);
+        let path = self._pathfor(key);
         match OpenOptions::new()
             .write(true)
             .truncate(true)
@@ -74,7 +74,7 @@ impl Storage for FileStorage {
     }
 
     fn retrieve(&self, key: &str) -> Result<Vec<u8>, StorageError> {
-        let path = self._pathfor(&key);
+        let path = self._pathfor(key);
         let mut file = match OpenOptions::new().read(true).write(false).open(&path) {
             Ok(file) => file,
             Err(err) => {

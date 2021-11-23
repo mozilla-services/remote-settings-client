@@ -23,13 +23,13 @@ impl Verification for RingVerifier {
         signature: &[u8],
     ) -> Result<(), SignatureError> {
         // 1. Parse the PEM bytes as DER-encoded X.509 Certificate.
-        let pems = match x509::parse_certificate_chain(&pem_bytes) {
+        let pems = match x509::parse_certificate_chain(pem_bytes) {
             Ok(pems) => pems,
             Err(err) => return Err(SignatureError::CertificateContentError(err.to_string())),
         };
         let certs: Vec<x509::X509Certificate> = match pems
             .iter()
-            .map(|pem| match x509::parse_x509_certificate(&pem) {
+            .map(|pem| match x509::parse_x509_certificate(pem) {
                 Ok(cert) => Ok(cert),
                 Err(e) => Err(e),
             })
@@ -41,7 +41,7 @@ impl Verification for RingVerifier {
 
         // 2. Verify that root hash matches the SHA256 fingerprint of the root certificate (DER content)
         let root_hash_bytes = hex::decode(&root_hash.replace(":", ""))
-            .or_else(|err| Err(SignatureError::RootHashFormatError(err.to_string())))?;
+            .map_err(|err| SignatureError::RootHashFormatError(err.to_string()))?;
 
         let root_pem = pems.first().unwrap();
 
@@ -89,7 +89,7 @@ impl Verification for RingVerifier {
                 let public_key =
                     signature::UnparsedPublicKey::new(verification_alg, &parent_pk_bytes);
                 public_key
-                    .verify(&child_der_bytes, &child_sig_bytes)
+                    .verify(child_der_bytes, child_sig_bytes)
                     .or(Err(SignatureError::CertificateTrustError))?;
             }
         }
@@ -122,7 +122,7 @@ impl Verification for RingVerifier {
             Err(err) => return Err(SignatureError::BadSignatureContent(err.to_string())),
         };
 
-        match public_key.verify(&message, &decoded_signature) {
+        match public_key.verify(message, &decoded_signature) {
             Ok(_) => Ok(()),
             Err(err) => Err(SignatureError::MismatchError(err.to_string())),
         }

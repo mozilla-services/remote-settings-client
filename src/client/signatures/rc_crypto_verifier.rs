@@ -20,12 +20,12 @@ impl Verification for RcCryptoVerifier {
         signature: &[u8],
     ) -> Result<(), SignatureError> {
         contentsignature::verify(
-            &message,
-            &signature,
-            &pem_bytes,
+            message,
+            signature,
+            pem_bytes,
             epoch_seconds,
-            &root_hash,
-            &subject_cn,
+            root_hash,
+            subject_cn,
         )?;
         Ok(())
     }

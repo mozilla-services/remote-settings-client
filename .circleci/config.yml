@@ -56,6 +56,22 @@ jobs:
             - libs/
           key: v4-cargo-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
       - run:
+          name: Clippy
+          command: |
+            export APPSERVICES_PLATFORM_DIR="$(pwd)/libs/desktop/linux-x86-64"
+            export NSS_DIR=${APPSERVICES_PLATFORM_DIR}/nss
+            export NSS_STATIC=1
+
+            rustup component add clippy
+            cargo clippy --version
+            cargo clippy --all-targets --all-features
+      - run:
+          name: rustfmt
+          command: |
+            rustup component add rustfmt
+            rustfmt --version
+            cargo fmt -- --check
+      - run:
           name: Run tests
           command: |
             export APPSERVICES_PLATFORM_DIR="$(pwd)/libs/desktop/linux-x86-64"
