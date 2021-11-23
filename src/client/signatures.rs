@@ -125,7 +125,7 @@ pub trait Verification: Send {
         collection: &Collection,
         root_hash: &str,
     ) -> Result<(), SignatureError> {
-        let pem_bytes = self.fetch_certificate_chain(requester, &collection)?;
+        let pem_bytes = self.fetch_certificate_chain(requester, collection)?;
 
         let signature_bytes = collection.metadata["signature"]["signature"]
             .as_str()
@@ -334,7 +334,7 @@ mod tests {
             cid: "".to_string(),
             metadata: json!({
                 "signature": {
-                    "x5u": url.clone()
+                    "x5u": url.to_string()
                 }
             }),
             records: vec![],
