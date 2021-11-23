@@ -226,16 +226,7 @@ mod tests {
         certificate: &str,
         expected_result: Result<(), SignatureError>,
     ) {
-        let test_http_client: Box<dyn Requester + 'static> = Box::new(TestHttpClient::new(
-            vec![TestResponse {
-                request_url:
-                    "https://example.com/chains/remote-settings.content-signature.mozilla.org-2020-09-04-17-16-15.chain"
-                        .to_string(),
-                response_status: 200,
-                response_body: certificate.as_bytes().to_vec(),
-                response_headers: Headers::new(),
-            }],
-        ));
+        let _ = viaduct::set_backend(&viaduct_reqwest::ReqwestBackend);
 
         let mut get_pem_certificate = mock_server.mock(|when, then| {
             when.path(
@@ -253,10 +244,12 @@ mod tests {
         #[cfg(feature = "rc_crypto_verifier")]
         verifiers.push(Box::new(super::rc_crypto_verifier::RcCryptoVerifier {}));
 
+        let viaduct_client: Box<dyn Requester + 'static> =
+            Box::new(crate::client::net::ViaductClient);
         for verifier in &verifiers {
             assert_eq!(
                 verifier
-                    .verify(&test_http_client, &collection, root_hash)
+                    .verify(&viaduct_client, &collection, root_hash)
                     .await,
                 expected_result
             );
