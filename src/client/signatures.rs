@@ -290,27 +290,45 @@ mod tests {
     }
 
     #[test]
-    fn test_bad_x5u_urls_request_fails() {
+    fn test_bad_x5u_urls() {
         let verifier = DummyVerifier {};
 
-        let test_client: Box<dyn Requester + 'static> = Box::new(DummyClient);
+        let _ = viaduct::set_backend(&viaduct_reqwest::ReqwestBackend);
+        let mock_server = MockServer::start();
+        let mock_server_address = mock_server.url("/file.pem");
+        let mut pem_mock = mock_server.mock(|when, then| {
+            when.path("/file.pem");
+            then.status(404);
+        });
+        let expectations: Vec<(&str, &str)> = vec![
+            ("%^", "bad URL format: relative URL without a base"),
+            (
+                "http://localhost:9999/bad",
+                "HTTP backend issue",
+            ),
+            (&mock_server_address, "/file.pem: HTTP 404"),
+        ];
 
-        let collection = Collection {
-            bid: "".to_string(),
-            cid: "".to_string(),
-            metadata: json!({
-                "signature": {
-                    "x5u": "https://irrelevavant"
-                }
-            }),
-            records: vec![],
-            timestamp: 0,
-            signer: "".to_string(),
-        };
-        let err = verifier
-            .fetch_certificate_chain(&test_client, &collection)
-            .unwrap_err();
-        assert!(err == SignatureError::HTTPBackendError());
+        for (url, error) in expectations {
+            let collection = Collection {
+                bid: "".to_string(),
+                cid: "".to_string(),
+                metadata: json!({
+                    "signature": {
+                        "x5u": url
+                    }
+                }),
+                records: vec![],
+                timestamp: 0,
+                signer: "".to_string(),
+            };
+
+            let viaduct_client: Box<dyn Requester + 'static> = Box::new(crate::client::net::ViaductClient);
+            let err = verifier.fetch_certificate_chain(&viaduct_client, &collection).unwrap_err();
+            assert!(err.to_string().contains(error), "{}", err.to_string());
+        }
+
+        pem_mock.delete();
     }
 
     #[test]
