@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::{Collection, SignatureError, Verification};
+use crate::client::net::Requester;
 use log::debug;
 
 pub struct DummyVerifier {}
@@ -20,7 +21,12 @@ impl Verification for DummyVerifier {
         Ok(()) // unreachable.
     }
 
-    fn verify(&self, _collection: &Collection, _: &str) -> Result<(), SignatureError> {
+    fn verify(
+        &self,
+        _requester: &Box<dyn Requester + 'static>,
+        _collection: &Collection,
+        _: &str,
+    ) -> Result<(), SignatureError> {
         debug!("default verifier implementation");
         Ok(())
     }
