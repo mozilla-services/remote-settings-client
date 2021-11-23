@@ -169,6 +169,7 @@ pub fn get_changeset(
 #[cfg(test)]
 mod tests {
     use super::{get_changeset, get_latest_change_timestamp, KintoError};
+    use httpmock::MockServer;
     use crate::client::net::{Headers, Requester, TestHttpClient, TestResponse};
 
     fn init() {
@@ -414,7 +415,6 @@ mod tests {
         };
     }
 
-    /* // TODO: This should really be in the HTTP tests
     #[test]
     fn test_fetch_follows_redirects() {
         init();
@@ -447,7 +447,9 @@ mod tests {
             );
         });
 
-        let res = get_latest_change_timestamp(&mock_server.url(""), "main", "crlite").unwrap();
+        let _ = viaduct::set_backend(&viaduct_reqwest::ReqwestBackend);
+        let viaduct_client: Box<dyn Requester + 'static> = Box::new(crate::client::net::ViaductClient);
+        let res = get_latest_change_timestamp(&viaduct_client, &mock_server.url(""), "main", "crlite").unwrap();
 
         assert_eq!(res, 5678);
 
@@ -456,5 +458,5 @@ mod tests {
 
         redirects_mock.delete();
         changeset_mock.delete();
-    }*/
+    }
 }
