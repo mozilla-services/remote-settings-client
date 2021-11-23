@@ -1152,8 +1152,7 @@ mod tests {
                 request_url: format!(
                     "{}/buckets/main/collections/nimbus/changeset?_expected={}",
                     fake_server, expected
-                )
-                .to_string(),
+                ),
                 response_status: 200,
                 response_body: json!(
                     {
