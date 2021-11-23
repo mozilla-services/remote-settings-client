@@ -203,8 +203,8 @@ pub enum SignatureError {
 #[cfg(test)]
 mod tests {
     use super::dummy_verifier::DummyVerifier;
-    use crate::client::net::{TestHttpClient, TestResponse};
-    use crate::client::{net::DummyClient, net::Headers, net::Requester};
+    use crate::client::net::TestHttpClient;
+    use crate::client::{net::DummyClient, net::Requester};
     use crate::{Collection, Record, SignatureError, Verification};
     use env_logger;
     use httpmock::MockServer;
