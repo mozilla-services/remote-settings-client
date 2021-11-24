@@ -4,6 +4,8 @@
 
 use super::{Headers, Requester, Response};
 
+use async_trait::async_trait;
+
 #[derive(Debug)]
 pub(crate) struct TestResponse {
     pub request_url: String,
@@ -24,8 +26,9 @@ impl TestHttpClient {
     }
 }
 
+#[async_trait]
 impl Requester for TestHttpClient {
-    fn get(&self, url: url::Url) -> Result<Response, ()> {
+    async fn get(&self, url: url::Url) -> Result<Response, ()> {
         for r in &self.test_responses {
             // Only respond to the specific URL if we're told to.
             if url.to_string().eq(&r.request_url) {
