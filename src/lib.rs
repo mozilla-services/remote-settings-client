@@ -9,26 +9,30 @@
 //!
 //! ```rust
 //! # #[cfg(feature = "ring_verifier")] {
-//!   use remote_settings_client::{Client, RingVerifier};
+//!   use remote_settings_client::{Client, RingVerifier, client::net::ViaductClient};
 //!   use viaduct::set_backend;
 //!   use viaduct_reqwest::ReqwestBackend;
 //!
+//! # #[tokio::main]
+//! # async fn main() {
 //!   set_backend(&ReqwestBackend).unwrap();
 //!
 //!   let mut client = Client::builder()
 //!     .bucket_name("main-preview")
+//!     .http_client(Box::new(ViaductClient))
 //!     .collection_name("search-config")
 //!     .verifier(Box::new(RingVerifier {}))
 //!     .build()
 //!     .unwrap();
 //!
-//!   client.sync(None).unwrap();
+//!   client.sync(None).await.unwrap();
 //!
-//!   match client.get() {
+//!   match client.get().await {
 //!     Ok(records) => println!("{:?}", records),
 //!     Err(error) => println!("Error fetching/verifying records: {:?}", error),
 //!   };
 //! # }
+//! }
 //! ```
 //!
 //! See [`Client`] for more infos.

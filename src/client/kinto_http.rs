@@ -73,7 +73,7 @@ impl std::fmt::Display for ErrorResponse {
     }
 }
 
-pub fn get_latest_change_timestamp(
+pub async fn get_latest_change_timestamp(
     requester: &Box<dyn Requester + 'static>,
     server: &str,
     bid: &str,
@@ -82,7 +82,7 @@ pub fn get_latest_change_timestamp(
     // When we fetch the monitor/changes endpoint manually (ie. not from a push notification)
     // we cannot know the current timestamp, and use 0 arbitrarily.
     let expected = 0;
-    let response = get_changeset(requester, server, "monitor", "changes", expected, None)?;
+    let response = get_changeset(requester, server, "monitor", "changes", expected, None).await?;
     let change = response
         .changes
         .iter()
@@ -102,7 +102,7 @@ pub fn get_latest_change_timestamp(
 }
 
 /// Fetches the collection content from the server.
-pub fn get_changeset(
+pub async fn get_changeset(
     requester: &Box<dyn Requester + 'static>,
     server: &str,
     bid: &str,
@@ -118,6 +118,7 @@ pub fn get_changeset(
     info!("Fetch {}...", url);
     let response = requester
         .get(Url::parse(&url)?)
+        .await
         .map_err(|_err| KintoError::HTTPBackendError())?;
 
     if !response.is_success() {
@@ -176,8 +177,8 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
-    #[test]
-    fn test_fetch() {
+    #[tokio::test]
+    async fn test_fetch() {
         init();
 
         let test_client: Box<dyn Requester + 'static> =
@@ -210,13 +211,14 @@ mod tests {
             "main",
             "url-classifier-skip-urls",
         )
+        .await
         .unwrap();
 
         assert_eq!(res, 9173);
     }
 
-    #[test]
-    fn test_bad_url() {
+    #[tokio::test]
+    async fn test_bad_url() {
         init();
 
         let _ = viaduct::set_backend(&viaduct_reqwest::ReqwestBackend);
@@ -225,6 +227,7 @@ mod tests {
 
         let err =
             get_latest_change_timestamp(&viaduct_client, "%^", "main", "url-classifier-skip-urls")
+                .await
                 .unwrap_err();
         assert_eq!(
             err.to_string(),
@@ -232,8 +235,8 @@ mod tests {
         )
     }
 
-    #[test]
-    fn test_bad_json() {
+    #[tokio::test]
+    async fn test_bad_json() {
         init();
 
         let test_client: Box<dyn Requester + 'static> =
@@ -256,12 +259,13 @@ mod tests {
             "main",
             "url-classifier-skip-urls",
         )
+        .await
         .unwrap_err();
         assert_eq!(err.to_string(), "changeset content could not be parsed: control character (\\u0000-\\u001F) found while parsing a string at line 3 column 0");
     }
 
-    #[test]
-    fn test_bad_timestamp() {
+    #[tokio::test]
+    async fn test_bad_timestamp() {
         init();
 
         let test_client: Box<dyn Requester + 'static> =
@@ -294,6 +298,7 @@ mod tests {
             "main",
             "url-classifier-skip-urls",
         )
+        .await
         .unwrap_err();
 
         match err {
@@ -307,8 +312,8 @@ mod tests {
         };
     }
 
-    #[test]
-    fn test_client_error_response() {
+    #[tokio::test]
+    async fn test_client_error_response() {
         init();
 
         let test_client: Box<dyn Requester + 'static> =
@@ -340,6 +345,7 @@ mod tests {
             451,
             None,
         )
+        .await
         .unwrap_err();
 
         match err {
@@ -355,8 +361,8 @@ mod tests {
         };
     }
 
-    #[test]
-    fn test_server_error_response() {
+    #[tokio::test]
+    async fn test_server_error_response() {
         init();
 
         let mut response_headers = Headers::new();
@@ -387,6 +393,7 @@ mod tests {
             42,
             None,
         )
+        .await
         .unwrap_err();
 
         match err {
@@ -406,8 +413,8 @@ mod tests {
         };
     }
 
-    #[test]
-    fn test_fetch_follows_redirects() {
+    #[tokio::test]
+    async fn test_fetch_follows_redirects() {
         init();
 
         let mock_server = MockServer::start();
@@ -443,6 +450,7 @@ mod tests {
             Box::new(crate::client::net::ViaductClient);
         let res =
             get_latest_change_timestamp(&viaduct_client, &mock_server.url(""), "main", "crlite")
+                .await
                 .unwrap();
 
         assert_eq!(res, 5678);

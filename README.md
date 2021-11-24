@@ -7,7 +7,8 @@ A Rust Remote Settings Client to fetch collection data.
 <!-- - Cross-Platform
 - Robust -->
 
-Relies on Mozilla's [viaduct](https://github.com/mozilla/application-services/tree/v87.0.0/components/viaduct) for its pluggable HTTP backend (eg. `reqwest` or `FFI` on Android).
+Consumers can define their own HTTP implementation by implementing the `net::Requester` trait.
+This library provides an implementation of the the `net::ViaductClient` HTTP requester based on on Mozilla's [viaduct](https://github.com/mozilla/application-services/tree/v87.0.0/components/viaduct) for its pluggable HTTP backend (eg. `reqwest` or `FFI` on Android).
 
 ## Quick start
 
@@ -15,26 +16,25 @@ Relies on Mozilla's [viaduct](https://github.com/mozilla/application-services/tr
 
 ```toml
 [dependencies]
-remote-settings-client = { version = "0.1", features = ["ring_verifier"] }
-viaduct = { git = "https://github.com/mozilla/application-services", rev = "v87.0.0"}
-viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v87.0.0"}
+remote-settings-client = { version = "0.1", features = ["ring_verifier", "viaduct_client"] }
+tokio = { version = "1.8.2", features = ["macros"] }
 ```
 
 Minimal example:
 
 ```rust
-use remote_settings_client::Client;
-pub use viaduct::set_backend;
-pub use viaduct_reqwest::ReqwestBackend;
+use remote_settings_client::{Client, client::net::ViaductClient};
 
-fn main() {
-  set_backend(&ReqwestBackend).unwrap();
+#[tokio::main]
+async fn main() {
+  viaduct::set_backend(&viaduct_reqwest::ReqwestBackend).unwrap();
 
   let client = Client::builder()
     .collection_name("search-config")
+    .http_client(Box::new(ViaductClient))
     .build();
 
-  match client.get() {
+  match client.get().await {
     Ok(records) => println!("{:?}", records),
     Err(error) => println!("Error fetching/verifying records: {:?}", error),
   };
