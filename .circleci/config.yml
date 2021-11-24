@@ -3,18 +3,20 @@ version: 2
 jobs:
   test:
     docker:
-      - image: rust:1
+      - image: mozilla/cidockerbases:rust-latest
     steps:
       - checkout
       - run:
           name: Version information
-          command: rustc --version; cargo --version; rustup --version
+          command: |
+            rustc --version; cargo --version; rustup --version;
+            export RUST_VERION=$(rustc --version)
       - run:
           name: Calculate dependencies
           command: cargo generate-lockfile
       - restore_cache:
           keys:
-            - v4-cargo-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
+            - v4-cargo-cache-{{ arch }}-{{ .Environment.RUST_VERSION }}-{{ checksum "Cargo.lock" }}
       - run:
           name: Build all targets
           command: cargo build --all --all-targets
@@ -40,8 +42,8 @@ jobs:
 
               # Download and compile NSS.
               mkdir libs && pushd libs
-              wget https://github.com/mozilla/application-services/raw/v86.2.0/libs/build-all.sh
-              wget https://github.com/mozilla/application-services/raw/v86.2.0/libs/build-nss-desktop.sh
+              wget https://github.com/mozilla/application-services/raw/v87.0.0/libs/build-all.sh
+              wget https://github.com/mozilla/application-services/raw/v87.0.0/libs/build-nss-desktop.sh
               touch build-sqlcipher-desktop.sh  # no-op.
               chmod +x *.sh
               ./build-all.sh desktop
@@ -54,7 +56,7 @@ jobs:
             - target/debug/build
             - target/debug/deps
             - libs/
-          key: v4-cargo-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
+          key: v4-cargo-cache-{{ arch }}-{{ .Environment.RUST_VERSION }}-{{ checksum "Cargo.lock" }}
       - run:
           name: Clippy
           command: |
@@ -65,6 +67,7 @@ jobs:
             rustup component add clippy
             cargo clippy --version
             cargo clippy --all-targets --all-features
+            cargo hack --feature-powerset clippy
       - run:
           name: rustfmt
           command: |
