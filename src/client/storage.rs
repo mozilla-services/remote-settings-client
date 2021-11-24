@@ -27,7 +27,7 @@ use thiserror::Error;
 ///     }
 /// }
 /// ```
-pub trait Storage: Send {
+pub trait Storage: Send + Sync {
     /// Store a key, value pair.
     ///
     /// # Errors
