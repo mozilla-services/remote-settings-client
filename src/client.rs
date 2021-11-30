@@ -7,16 +7,15 @@ pub mod net;
 mod signatures;
 mod storage;
 
+use anyhow::{anyhow, Context};
 use log::{debug, info};
 use serde_json::Value;
-use std::collections::HashMap;
-use std::time::Duration;
+use std::{
+    collections::HashMap,
+    convert::{TryFrom, TryInto},
+    time::Duration,
+};
 use url::Url;
-
-#[cfg(feature = "attachments")]
-use anyhow::{anyhow, Context};
-#[cfg(feature = "attachments")]
-use std::convert::{TryFrom, TryInto};
 
 #[cfg(test)]
 use mock_instant::Instant;
@@ -59,8 +58,6 @@ pub enum ClientError {
     BackoffError(u64),
     #[error("the Kinto server is not compatible with the request: {0}")]
     CompatibilityError(anyhow::Error),
-
-    #[cfg(feature = "attachments")]
     #[error("attachment data was not in the expected format: {0}")]
     AttachmentMetadataError(anyhow::Error),
 }
@@ -68,13 +65,10 @@ pub enum ClientError {
 #[derive(Default, Debug, Deserialize, Serialize)]
 pub struct Record {
     value: Value,
-
-    #[cfg(feature = "attachments")]
     #[serde(skip)]
     attachment: Attachment,
 }
 
-#[cfg(feature = "attachments")]
 #[derive(Debug, PartialEq)]
 pub enum Attachment {
     Pending,
@@ -91,14 +85,12 @@ pub struct AttachmentMetadata {
     pub mimetype: String,
 }
 
-#[cfg(feature = "attachments")]
 impl Default for Attachment {
     fn default() -> Self {
         Attachment::Pending
     }
 }
 
-#[cfg(feature = "attachments")]
 impl<'a> From<&'a Attachment> for Option<&'a AttachmentMetadata> {
     fn from(val: &'a Attachment) -> Self {
         match val {
@@ -113,7 +105,6 @@ impl Clone for Record {
     fn clone(&self) -> Self {
         Self {
             value: self.value.clone(),
-            #[cfg(feature = "attachments")]
             attachment: Attachment::Pending,
         }
     }
@@ -130,8 +121,6 @@ impl Record {
     pub fn new(value: Value) -> Record {
         Record {
             value,
-
-            #[cfg(feature = "attachments")]
             attachment: Attachment::Pending,
         }
     }
@@ -178,7 +167,6 @@ impl Record {
     ///   of the expected format.
     ///
     /// The `AttachmentMetadata::Pending` state should never be returned.
-    #[cfg(feature = "attachments")]
     pub fn attachment_metadata(&mut self) -> Result<Option<&AttachmentMetadata>, ClientError> {
         if let Attachment::Pending = self.attachment {
             let maybe_attachment = self
@@ -308,27 +296,35 @@ pub struct Collection {
 ///
 /// ## Attachments
 ///
-/// When built with the `attachments` feature, attachments associated with records can be downloaded.
+/// Attachments associated with records can be downloaded.
 ///
-/// ```rust
+/// ```no_run
 /// # use remote_settings_client::Client;
 /// # #[tokio::main]
-/// # #[cfg(feature = "attachments")]
 /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// let client = Client::builder()
+/// let mut client = Client::builder()
 ///   .collection_name("cid")
 ///   .build()
 ///   .unwrap();
 ///
 /// // Attachment operations store cache data on records, so they need mutable references.
 /// let mut records = client.get().await?;
-/// let attachment_metadata = records[0].attachment_metadata()?;
-/// let attachment_body = client.fetch_attachment(&mut records[0]).await?;
-/// # }
+/// if let Some(attachment_metadata) = records[0].attachment_metadata()? {
+///     println!("The attachment should be {} bytes long", attachment_metadata.size);
+/// }
 ///
-/// Attachment records contain a hash of the expected content. The provided
+/// // The type returned can be anything that implement `From<Vec<u8>>`.
+/// if let Some(attachment_body) = client.fetch_attachment::<Vec<u8>, _>(&mut records[0]).await? {
+///     println!("Downloaded attachment with size {} bytes", attachment_body.len());
+/// }
+///
+/// # Ok(())
+/// # }
+/// ```
+///
+/// Attachment metadata contain a hash of the expected content. The provided
 /// verifier will be used to confirm that hash, and if it does not match a
-/// verification will be returned.
+/// verification error will be returned.
 /// ```
 ///
 #[derive(Builder, Debug)]
@@ -607,7 +603,6 @@ impl Client {
     ///   problem while downloading it. This should be considered a temporary
     ///   error.
     /// * Ok(None) - There is no attachment for the record
-    #[cfg(feature = "attachments")]
     pub async fn fetch_attachment<T, E>(
         &mut self,
         record: &mut Record,
@@ -621,7 +616,7 @@ impl Client {
             Some(m) => m,
         };
 
-        let key = format!("attachment:{}", metadata.hash);
+        let key = format!("attachment:{}/{}:{}", self.bucket_name, self.collection_name, metadata.hash);
         let bytes = match self.storage.retrieve(&key) {
             Ok(bytes) => Ok(bytes),
 
@@ -650,7 +645,7 @@ impl Client {
 
                 let response = self
                     .http_client
-                    .get(url)
+                    .get(url.clone())
                     .await
                     .map_err(|_| ClientError::APIError(KintoError::HTTPBackendError()))?;
 
@@ -658,7 +653,7 @@ impl Client {
                     Ok(response.body)
                 } else {
                     return Err(ClientError::APIError(KintoError::UnexpectedResponse {
-                        url: self.server_url.clone(),
+                        url: url.to_string(),
                         response,
                     }));
                 }
@@ -669,8 +664,9 @@ impl Client {
 
         let hash_bytes = hex::decode(&metadata.hash)
             .context("decoded expected hash")
-            .map_err(|err| ClientError::AttachmentMetadataError(err))?;
-        self.verifier.verify_sha256_hash(bytes.as_slice(), hash_bytes.as_slice())?;
+            .map_err(ClientError::AttachmentMetadataError)?;
+        self.verifier
+            .verify_sha256_hash(bytes.as_slice(), hash_bytes.as_slice())?;
 
         let rv = bytes
             .try_into()
@@ -752,7 +748,11 @@ mod tests {
             ))
         }
 
-        fn verify_sha256_hash(&self, _content: &[u8], _expected: &[u8]) -> Result<(), SignatureError> {
+        fn verify_sha256_hash(
+            &self,
+            _content: &[u8],
+            _expected: &[u8],
+        ) -> Result<(), SignatureError> {
             Ok(())
         }
     }
@@ -782,7 +782,11 @@ mod tests {
             Ok(())
         }
 
-        fn verify_sha256_hash(&self, _content: &[u8], _expected: &[u8]) -> Result<(), SignatureError> {
+        fn verify_sha256_hash(
+            &self,
+            _content: &[u8],
+            _expected: &[u8],
+        ) -> Result<(), SignatureError> {
             Err(SignatureError::MismatchError(
                 "fake invalid hash".to_owned(),
             ))
@@ -1482,7 +1486,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg(feature = "attachments")]
     async fn test_attachment() {
         init();
 
@@ -1496,7 +1499,7 @@ mod tests {
                 response_body: json!({
                     "capabilities": {
                         "attachments": {
-                            "base_url": format!("{}/attachments", fake_server),
+                            "base_url": format!("{}/attachments/", fake_server),
                         }
                     }
                 }).to_string().as_bytes().to_vec(),
@@ -1531,7 +1534,11 @@ mod tests {
                 ),
                 response_status: 200,
                 response_body: json!({
-                    "metadata": {},
+                    "metadata": {
+                        "signature": {
+                            "x5u": format!("{}/x5u", fake_server),
+                        }
+                    },
                     "changes": [{
                         "id": "record-1",
                         "last_modified": 0,
@@ -1539,12 +1546,20 @@ mod tests {
                             "hash": "f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2",
                             "size": 5,
                             "filename": "test-attachment.txt",
-                            "location": "/1",
+                            "location": "1",
                             "mimetype": "text/plain",
                         },
                     }],
                     "timestamp": 0,
                 }).to_string().as_bytes().to_vec(),
+                response_headers: Headers::new(),
+            },
+
+            // fake signature
+            TestResponse {
+                request_url: format!("{}/x5u", fake_server),
+                response_status: 200,
+                response_body: vec![],
                 response_headers: Headers::new(),
             },
 
@@ -1563,13 +1578,61 @@ mod tests {
         let test_client: Box<dyn Requester + 'static> =
             Box::new(TestHttpClient::new(test_responses));
 
-        let mut client = Client::builder()
+        let mut client_builder = Client::builder()
             .server_url(fake_server)
             .http_client(test_client)
             .bucket_name("main")
-            .collection_name("some-attachments")
-            .build()
-            .unwrap();
+            .collection_name("some-attachments");
+
+        struct HashOnlyVerifier {
+            inner: Box<dyn Verification>,
+        }
+
+        impl Verification for HashOnlyVerifier {
+            fn verify_nist384p_chain(
+                &self,
+                _: u64,
+                _: &[u8],
+                _: &str,
+                _: &str,
+                _: &[u8],
+                _: &[u8],
+            ) -> Result<(), SignatureError> {
+                Ok(())
+            }
+
+            fn verify_sha256_hash(
+                &self,
+                content: &[u8],
+                expected: &[u8],
+            ) -> Result<(), SignatureError> {
+                self.inner.verify_sha256_hash(content, expected)
+            }
+        }
+
+        // If available, set a verifier to check that the hash feature is working.
+        #[allow(clippy::if_same_then_else)]
+        if cfg!(feature = "ring") {
+            #[cfg(feature = "ring")]
+            {
+                client_builder = client_builder.verifier(Box::new(HashOnlyVerifier {
+                    inner: Box::new(crate::client::signatures::ring_verifier::RingVerifier {}),
+                }));
+            }
+        } else if cfg!(feature = "rc_crypto") {
+            #[cfg(feature = "rc_crypto")]
+            {
+                client_builder = client_builder.verifier(Box::new(HashOnlyVerifier {
+                    inner: Box::new(
+                        crate::client::signatures::rc_crypto_verifier::RcCryptoVerifier {},
+                    ),
+                }));
+            }
+        } else {
+            client_builder = client_builder.verifier(Box::new(DummyVerifier {}));
+        }
+
+        let mut client = client_builder.build().unwrap();
 
         let mut records = client.get().await.unwrap();
 
@@ -1581,7 +1644,7 @@ mod tests {
                     .to_string(),
                 size: 5,
                 filename: "test-attachment.txt".to_string(),
-                location: "/1".to_string(),
+                location: "1".to_string(),
                 mimetype: "text/plain".to_string(),
             })
         );
@@ -1592,7 +1655,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg(feature = "attachments")]
     async fn test_no_attachment() {
         init();
 
@@ -1681,7 +1743,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg(feature = "attachments")]
     async fn test_attachment_bad_hash() {
         init();
 
@@ -1774,7 +1835,9 @@ mod tests {
 
         let mut records = client.get().await.unwrap();
         let attachment_body = client.fetch_attachment::<Vec<u8>, _>(&mut records[0]).await;
-        dbg!(&attachment_body);
-        assert!(matches!(attachment_body, Err(ClientError::IntegrityError(_))));
+        assert!(matches!(
+            attachment_body,
+            Err(ClientError::IntegrityError(_))
+        ));
     }
 }

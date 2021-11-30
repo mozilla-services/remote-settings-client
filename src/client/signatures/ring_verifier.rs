@@ -135,7 +135,9 @@ impl Verification for RingVerifier {
         if expected == actual.as_ref() {
             Ok(())
         } else {
-            Err(SignatureError::MismatchError("content did not match expected sha256 hash".to_string()))
+            Err(SignatureError::MismatchError(
+                "content did not match expected sha256 hash".to_string(),
+            ))
         }
     }
 }

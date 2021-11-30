@@ -60,7 +60,11 @@ fn epoch_seconds() -> u64 {
 ///         message: &[u8],
 ///         signature: &[u8],
 ///     ) -> Result<(), SignatureError> {
-///         Ok(()) // unreachable.
+///         todo!()
+///     }
+///
+///     fn verify_sha256_hash(&self, content: &[u8], hash: &[u8]) -> Result<(), SignatureError> {
+///         todo!()
 ///     }
 /// }
 ///

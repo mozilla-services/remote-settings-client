@@ -13,7 +13,6 @@ rc_crypto_verifier = ["rc_crypto"]
 # Using viaduct requires using tokio as well because we need to use the
 # `spawn_blocking` API.
 viaduct_client = ["viaduct", "tokio"]
-attachments = []
 
 [dev-dependencies]
 env_logger = "0.9.0"

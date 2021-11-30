@@ -67,7 +67,7 @@ jobs:
             rustup component add clippy
             cargo clippy --version
             cargo clippy --all-targets --all-features
-            cargo hack --feature-powerset clippy
+            cargo hack --feature-powerset clippy --all-targets
       - run:
           name: rustfmt
           command: |
@@ -81,7 +81,7 @@ jobs:
             export NSS_DIR=${APPSERVICES_PLATFORM_DIR}/nss
             export NSS_STATIC=1
 
-            cargo test --all-features
+            cargo hack --feature-powerset test
       - run:
           name: Build documentation
           command: |
