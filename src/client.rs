@@ -7,9 +7,15 @@ pub mod net;
 mod signatures;
 mod storage;
 
+use anyhow::{anyhow, Context};
 use log::{debug, info};
-use std::collections::HashMap;
-use std::time::Duration;
+use serde_json::Value;
+use std::{
+    collections::HashMap,
+    convert::{TryFrom, TryInto},
+    time::Duration,
+};
+use url::Url;
 
 #[cfg(test)]
 use mock_instant::Instant;
@@ -50,32 +56,91 @@ pub enum ClientError {
     APIError(#[from] KintoError),
     #[error("server indicated client to backoff ({0} secs remaining)")]
     BackoffError(u64),
+    #[error("the Kinto server is not compatible with the request: {0}")]
+    CompatibilityError(anyhow::Error),
+    #[error("attachment data was not in the expected format: {0}")]
+    AttachmentMetadataError(anyhow::Error),
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct Record(serde_json::Value);
+#[derive(Default, Debug, Deserialize, Serialize)]
+pub struct Record {
+    value: Value,
+    #[serde(skip)]
+    attachment: Attachment,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Attachment {
+    Pending,
+    None,
+    Some(AttachmentMetadata),
+}
+
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct AttachmentMetadata {
+    pub hash: String,
+    pub size: usize,
+    pub filename: String,
+    pub location: String,
+    pub mimetype: String,
+}
+
+impl Default for Attachment {
+    fn default() -> Self {
+        Attachment::Pending
+    }
+}
+
+impl<'a> From<&'a Attachment> for Option<&'a AttachmentMetadata> {
+    fn from(val: &'a Attachment) -> Self {
+        match val {
+            Attachment::Pending => None,
+            Attachment::None => None,
+            Attachment::Some(m) => Some(m),
+        }
+    }
+}
+
+impl Clone for Record {
+    fn clone(&self) -> Self {
+        Self {
+            value: self.value.clone(),
+            attachment: Attachment::Pending,
+        }
+    }
+}
+
+impl PartialEq for Record {
+    fn eq(&self, other: &Self) -> bool {
+        // ignore attachment, since it is in theory fully determined by `self.value`.
+        self.value == other.value
+    }
+}
 
 impl Record {
-    pub fn new(value: serde_json::Value) -> Record {
-        Record(value)
+    pub fn new(value: Value) -> Record {
+        Record {
+            value,
+            attachment: Attachment::Pending,
+        }
     }
 
     // Return the underlying [`serde_json::Value`].
     pub fn as_object(&self) -> &serde_json::Map<String, serde_json::Value> {
         // Record data is always an object.
-        self.0.as_object().unwrap()
+        self.value.as_object().unwrap()
     }
 
     // Return the record id.
     pub fn id(&self) -> &str {
         // `id` field is always present as a string.
-        self.0["id"].as_str().unwrap()
+        self.value["id"].as_str().unwrap()
     }
 
     // Return the record timestamp.
     pub fn last_modified(&self) -> u64 {
         // `last_modified` field is always present as a uint.
-        self.0["last_modified"].as_u64().unwrap()
+        self.value["last_modified"].as_u64().unwrap()
     }
 
     // Return true if the record is a tombstone.
@@ -88,7 +153,49 @@ impl Record {
 
     // Return a field value.
     pub fn get(&self, key: &str) -> Option<&serde_json::Value> {
-        self.0.get(key)
+        self.value.get(key)
+    }
+
+    /// Return the attachment metadata for this record, if any.
+    ///
+    /// Return values:
+    ///
+    /// * `Ok(Some(AttachmentMetadata))` - There is an attachment, and it was
+    ///   successfully converted to the expected format.
+    /// * `Ok(None)` - There is no attachment for this record
+    /// * `Err(_)` - There is an attachment for this record, but it is not
+    ///   of the expected format.
+    ///
+    /// The `AttachmentMetadata::Pending` state should never be returned.
+    pub fn attachment_metadata(&mut self) -> Result<Option<&AttachmentMetadata>, ClientError> {
+        if let Attachment::Pending = self.attachment {
+            let maybe_attachment = self
+                .value
+                .as_object()
+                .and_then(|obj| obj.get("attachment"))
+                .map(|a| serde_json::from_value::<AttachmentMetadata>(a.clone()));
+
+            match maybe_attachment {
+                Some(Ok(meta)) => {
+                    self.attachment = Attachment::Some(meta);
+                }
+                Some(Err(err)) => {
+                    // serde_json::Error does not implement std::error::Error,
+                    // weirdly, so convert it to a string.
+                    return Err(ClientError::AttachmentMetadataError(anyhow!(
+                        "Could not convert attachment to requested type: {}",
+                        err
+                    )));
+                }
+                None => {
+                    self.attachment = Attachment::None;
+                }
+            }
+        }
+
+        debug_assert_ne!(self.attachment, Attachment::Pending);
+
+        Ok((&self.attachment).into())
     }
 }
 
@@ -99,7 +206,7 @@ where
     type Output = serde_json::Value;
     fn index(&self, index: I) -> &serde_json::Value {
         static NULL: serde_json::Value = serde_json::Value::Null;
-        index.index_into(&self.0).unwrap_or(&NULL)
+        index.index_into(&self.value).unwrap_or(&NULL)
     }
 }
 
@@ -187,6 +294,39 @@ pub struct Collection {
 /// ### Custom
 /// See [`Verification`] for implementing a custom signature verifier.
 ///
+/// ## Attachments
+///
+/// Attachments associated with records can be downloaded.
+///
+/// ```no_run
+/// # use remote_settings_client::Client;
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let mut client = Client::builder()
+///   .collection_name("cid")
+///   .build()
+///   .unwrap();
+///
+/// // Attachment operations store cache data on records, so they need mutable references.
+/// let mut records = client.get().await?;
+/// if let Some(attachment_metadata) = records[0].attachment_metadata()? {
+///     println!("The attachment should be {} bytes long", attachment_metadata.size);
+/// }
+///
+/// // The type returned can be anything that implement `From<Vec<u8>>`.
+/// if let Some(attachment_body) = client.fetch_attachment::<Vec<u8>, _>(&mut records[0]).await? {
+///     println!("Downloaded attachment with size {} bytes", attachment_body.len());
+/// }
+///
+/// # Ok(())
+/// # }
+/// ```
+///
+/// Attachment metadata contain a hash of the expected content. The provided
+/// verifier will be used to confirm that hash, and if it does not match a
+/// verification error will be returned.
+/// ```
+///
 #[derive(Builder, Debug)]
 #[builder(pattern = "owned")] // No clone because of Box<dyn...>
 pub struct Client {
@@ -213,6 +353,8 @@ pub struct Client {
     cert_root_hash: String,
     #[builder(default = "Box::new(net::DummyClient)")]
     http_client: Box<dyn net::Requester + 'static>,
+    #[builder(default = "None")]
+    server_info: Option<Value>,
 }
 
 impl Default for Client {
@@ -419,6 +561,122 @@ impl Client {
         }
         Ok(())
     }
+
+    pub async fn server_info(&mut self) -> Result<&Value, ClientError> {
+        if let Some(ref server_info) = self.server_info {
+            Ok(server_info)
+        } else {
+            let info_url =
+                Url::parse(&self.server_url).map_err(|err| ClientError::APIError(err.into()))?;
+
+            let response = self
+                .http_client
+                .get(info_url)
+                .await
+                .map_err(|_err| ClientError::APIError(KintoError::HTTPBackendError()))?;
+
+            if response.is_success() {
+                let server_info = serde_json::from_slice(&response.body).map_err(|_err| {
+                    ClientError::APIError(KintoError::UnexpectedResponse {
+                        url: self.server_url.clone(),
+                        response,
+                    })
+                })?;
+
+                self.server_info = Some(server_info);
+                Ok(self.server_info.as_ref().unwrap())
+            } else {
+                Err(ClientError::APIError(KintoError::UnexpectedResponse {
+                    url: self.server_url.clone(),
+                    response,
+                }))
+            }
+        }
+    }
+
+    /// Download the attachment for a record.
+    ///
+    /// Return values:
+    /// * Ok(Some(T)) - There is an attachment for the record and it was
+    ///   successfully downloaded.
+    /// * Err(_) - There is an attachment for the record, and there was a
+    ///   problem while downloading it. This should be considered a temporary
+    ///   error.
+    /// * Ok(None) - There is no attachment for the record
+    pub async fn fetch_attachment<T, E>(
+        &mut self,
+        record: &mut Record,
+    ) -> Result<Option<T>, ClientError>
+    where
+        T: TryFrom<Vec<u8>, Error = E>,
+        E: 'static + Send + Sync + std::error::Error,
+    {
+        let metadata = match record.attachment_metadata()? {
+            None => return Ok(None),
+            Some(m) => m,
+        };
+
+        let key = format!(
+            "attachment:{}/{}:{}",
+            self.bucket_name, self.collection_name, metadata.hash
+        );
+        let bytes = match self.storage.retrieve(&key) {
+            Ok(bytes) => Ok(bytes),
+
+            Err(StorageError::KeyNotFound { .. }) => {
+                // Download the attachment
+                let url = {
+                    let server_info = self.server_info().await?;
+                    match &server_info["capabilities"]["attachments"]["base_url"] {
+                        Value::String(s) => {
+                            let full_url = format!("{}{}", s, metadata.location);
+                            Url::parse(&full_url)
+                                .map_err(|err| ClientError::APIError(KintoError::URLError(err)))?
+                        }
+                        Value::Null => {
+                            return Err(ClientError::CompatibilityError(anyhow!(
+                                "server does not support attachments"
+                            )));
+                        }
+                        _ => {
+                            return Err(ClientError::CompatibilityError(anyhow!(
+                                "server did not return a valid attachment base_url"
+                            )));
+                        }
+                    }
+                };
+
+                let response = self
+                    .http_client
+                    .get(url.clone())
+                    .await
+                    .map_err(|_| ClientError::APIError(KintoError::HTTPBackendError()))?;
+
+                if response.is_success() {
+                    Ok(response.body)
+                } else {
+                    return Err(ClientError::APIError(KintoError::UnexpectedResponse {
+                        url: url.to_string(),
+                        response,
+                    }));
+                }
+            }
+
+            Err(err) => Err(ClientError::StorageError(err)),
+        }?;
+
+        let hash_bytes = hex::decode(&metadata.hash)
+            .context("decoded expected hash")
+            .map_err(ClientError::AttachmentMetadataError)?;
+        self.verifier
+            .verify_sha256_hash(bytes.as_slice(), hash_bytes.as_slice())?;
+
+        let rv = bytes
+            .try_into()
+            .context("parsing attachment to requested type")
+            .map_err(ClientError::AttachmentMetadataError)?;
+        Ok(Some(rv))
+    }
 }
 
 fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -> Vec<Record> {
@@ -439,6 +697,7 @@ fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -
 
     local_by_id.into_iter().map(|(_, v)| v).collect()
 }
+
 #[cfg(test)]
 mod tests {
     use super::net::{Headers, Requester, TestHttpClient, TestResponse};
@@ -446,6 +705,7 @@ mod tests {
     use super::{
         Client, ClientError, Collection, DummyStorage, DummyVerifier, MemoryStorage, Record,
     };
+    use crate::client::AttachmentMetadata;
     use async_trait::async_trait;
     use env_logger;
     use httpmock::MockServer;
@@ -477,7 +737,7 @@ mod tests {
             _: &[u8],
             _: &[u8],
         ) -> Result<(), SignatureError> {
-            Ok(()) // unreachable.
+            unreachable!()
         }
 
         async fn verify(
@@ -488,6 +748,50 @@ mod tests {
         ) -> Result<(), SignatureError> {
             Err(SignatureError::MismatchError(
                 "fake invalid signature".to_owned(),
+            ))
+        }
+
+        fn verify_sha256_hash(
+            &self,
+            _content: &[u8],
+            _expected: &[u8],
+        ) -> Result<(), SignatureError> {
+            Ok(())
+        }
+    }
+
+    struct VerifierWithInvalidHashError {}
+
+    #[async_trait]
+    impl Verification for VerifierWithInvalidHashError {
+        fn verify_nist384p_chain(
+            &self,
+            _: u64,
+            _: &[u8],
+            _: &str,
+            _: &str,
+            _: &[u8],
+            _: &[u8],
+        ) -> Result<(), SignatureError> {
+            unreachable!()
+        }
+
+        async fn verify(
+            &self,
+            _requester: &Box<dyn Requester + 'static>,
+            _collection: &Collection,
+            _: &str,
+        ) -> Result<(), SignatureError> {
+            Ok(())
+        }
+
+        fn verify_sha256_hash(
+            &self,
+            _content: &[u8],
+            _expected: &[u8],
+        ) -> Result<(), SignatureError> {
+            Err(SignatureError::MismatchError(
+                "fake invalid hash".to_owned(),
             ))
         }
     }
@@ -520,7 +824,7 @@ mod tests {
         assert!(client.sync_if_empty);
         assert!(client.trust_local);
         // And Debug format
-        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", signer_name: \"remote-settings.content-signature.mozilla.org\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, backoff_until: None, cert_root_hash: \"97:E8:BA:9C:F1:2F:B3:DE:53:CC:42:A4:E6:57:7E:D6:4D:F4:93:C2:47:B4:14:FE:A0:36:81:8D:38:23:56:0E\", http_client: DummyClient }");
+        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", signer_name: \"remote-settings.content-signature.mozilla.org\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, backoff_until: None, cert_root_hash: \"97:E8:BA:9C:F1:2F:B3:DE:53:CC:42:A4:E6:57:7E:D6:4D:F4:93:C2:47:B4:14:FE:A0:36:81:8D:38:23:56:0E\", http_client: DummyClient, server_info: None }");
     }
 
     #[tokio::test]
@@ -717,7 +1021,7 @@ mod tests {
             bid: "main".to_owned(),
             cid: "search-config".to_owned(),
             metadata: json!({}),
-            records: vec![Record(json!({}))],
+            records: vec![Record::default()],
             timestamp: 42,
             signer: "some-name".to_owned(),
         };
@@ -1095,7 +1399,7 @@ mod tests {
 
     #[test]
     fn test_record_fields() {
-        let r = Record(json!({
+        let r = Record::new(json!({
             "id": "abc",
             "last_modified": 100,
             "foo": {"bar": 42},
@@ -1117,14 +1421,14 @@ mod tests {
         assert_eq!(r.get("pi").unwrap().as_f64(), None);
         assert_eq!(r.get("foo").unwrap().get("bar").unwrap().as_u64(), Some(42));
 
-        let r = Record(json!({
+        let r = Record::new(json!({
             "id": "abc",
             "last_modified": 100,
             "deleted": true
         }));
         assert!(r.deleted());
 
-        let r = Record(json!({
+        let r = Record::new(json!({
             "id": "abc",
             "last_modified": 100,
             "deleted": "foo"
@@ -1182,5 +1486,361 @@ mod tests {
         client.sync(888).await.unwrap();
 
         assert!(matches!(second_sync, ClientError::BackoffError(_)));
+    }
+
+    #[tokio::test]
+    async fn test_attachment() {
+        init();
+
+        let fake_server = "https://www.example.com/v1";
+
+        let test_responses = vec![
+            // server metadata
+            TestResponse {
+                request_url: fake_server.to_string(),
+                response_status: 200,
+                response_body: json!({
+                    "capabilities": {
+                        "attachments": {
+                            "base_url": format!("{}/attachments/", fake_server),
+                        }
+                    }
+                }).to_string().as_bytes().to_vec(),
+                response_headers: Headers::new(),
+            },
+
+            // list of changed collections
+            TestResponse {
+                request_url: format!(
+                    "{}/buckets/monitor/collections/changes/changeset?_expected=0",
+                    fake_server
+                ),
+                response_status: 200,
+                response_body: json!({
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 0,
+                        "bucket": "main",
+                        "collection": "some-attachments"
+                    }],
+                    "timestamp": 0,
+                }).to_string().as_bytes().to_vec(),
+                response_headers: Headers::new(),
+            },
+
+            // changes for this collection
+            TestResponse {
+                request_url: format!(
+                    "{}/buckets/main/collections/some-attachments/changeset?_expected=0",
+                    fake_server
+                ),
+                response_status: 200,
+                response_body: json!({
+                    "metadata": {
+                        "signature": {
+                            "x5u": format!("{}/x5u", fake_server),
+                        }
+                    },
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 0,
+                        "attachment": {
+                            "hash": "f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2",
+                            "size": 5,
+                            "filename": "test-attachment.txt",
+                            "location": "1",
+                            "mimetype": "text/plain",
+                        },
+                    }],
+                    "timestamp": 0,
+                }).to_string().as_bytes().to_vec(),
+                response_headers: Headers::new(),
+            },
+
+            // fake signature
+            TestResponse {
+                request_url: format!("{}/x5u", fake_server),
+                response_status: 200,
+                response_body: vec![],
+                response_headers: Headers::new(),
+            },
+
+            // The attachment
+            TestResponse {
+                request_url: format!(
+                    "{}/attachments/1",
+                    fake_server
+                ),
+                response_status: 200,
+                response_body: "test\n".as_bytes().to_vec(),
+                response_headers: Headers::new(),
+            },
+        ];
+
+        let test_client: Box<dyn Requester + 'static> =
+            Box::new(TestHttpClient::new(test_responses));
+
+        let mut client_builder = Client::builder()
+            .server_url(fake_server)
+            .http_client(test_client)
+            .bucket_name("main")
+            .collection_name("some-attachments");
+
+        struct HashOnlyVerifier {
+            inner: Box<dyn Verification>,
+        }
+
+        impl Verification for HashOnlyVerifier {
+            fn verify_nist384p_chain(
+                &self,
+                _: u64,
+                _: &[u8],
+                _: &str,
+                _: &str,
+                _: &[u8],
+                _: &[u8],
+            ) -> Result<(), SignatureError> {
+                Ok(())
+            }
+
+            fn verify_sha256_hash(
+                &self,
+                content: &[u8],
+                expected: &[u8],
+            ) -> Result<(), SignatureError> {
+                self.inner.verify_sha256_hash(content, expected)
+            }
+        }
+
+        // If available, set a verifier to check that the hash feature is working.
+        #[allow(clippy::if_same_then_else)]
+        if cfg!(feature = "ring") {
+            #[cfg(feature = "ring")]
+            {
+                client_builder = client_builder.verifier(Box::new(HashOnlyVerifier {
+                    inner: Box::new(crate::client::signatures::ring_verifier::RingVerifier {}),
+                }));
+            }
+        } else if cfg!(feature = "rc_crypto") {
+            #[cfg(feature = "rc_crypto")]
+            {
+                client_builder = client_builder.verifier(Box::new(HashOnlyVerifier {
+                    inner: Box::new(
+                        crate::client::signatures::rc_crypto_verifier::RcCryptoVerifier {},
+                    ),
+                }));
+            }
+        } else {
+            client_builder = client_builder.verifier(Box::new(DummyVerifier {}));
+        }
+
+        let mut client = client_builder.build().unwrap();
+
+        let mut records = client.get().await.unwrap();
+
+        let attachment_metadata = records[0].attachment_metadata().unwrap();
+        assert_eq!(
+            attachment_metadata,
+            Some(&AttachmentMetadata {
+                hash: "f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2"
+                    .to_string(),
+                size: 5,
+                filename: "test-attachment.txt".to_string(),
+                location: "1".to_string(),
+                mimetype: "text/plain".to_string(),
+            })
+        );
+
+        let attachment_body: Option<Vec<u8>> =
+            client.fetch_attachment(&mut records[0]).await.unwrap();
+        assert_eq!(attachment_body, Some("test\n".as_bytes().to_vec()));
+    }
+
+    #[tokio::test]
+    async fn test_no_attachment() {
+        init();
+
+        let fake_server = "https://www.example.com/v1";
+
+        let test_responses = vec![
+            // server metadata
+            TestResponse {
+                request_url: fake_server.to_string(),
+                response_status: 200,
+                response_body: json!({
+                    "capabilities": {
+                        "attachments": {
+                            "base_url": format!("{}/attachments", fake_server),
+                        }
+                    }
+                })
+                .to_string()
+                .as_bytes()
+                .to_vec(),
+                response_headers: Headers::new(),
+            },
+            // list of changed collections
+            TestResponse {
+                request_url: format!(
+                    "{}/buckets/monitor/collections/changes/changeset?_expected=0",
+                    fake_server
+                ),
+                response_status: 200,
+                response_body: json!({
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 0,
+                        "bucket": "main",
+                        "collection": "some-attachments"
+                    }],
+                    "timestamp": 0,
+                })
+                .to_string()
+                .as_bytes()
+                .to_vec(),
+                response_headers: Headers::new(),
+            },
+            // changes for this collection
+            TestResponse {
+                request_url: format!(
+                    "{}/buckets/main/collections/some-attachments/changeset?_expected=0",
+                    fake_server
+                ),
+                response_status: 200,
+                response_body: json!({
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 0,
+                    }],
+                    "timestamp": 0,
+                })
+                .to_string()
+                .as_bytes()
+                .to_vec(),
+                response_headers: Headers::new(),
+            },
+        ];
+
+        let test_client: Box<dyn Requester + 'static> =
+            Box::new(TestHttpClient::new(test_responses));
+
+        let mut client = Client::builder()
+            .server_url(fake_server)
+            .http_client(test_client)
+            .bucket_name("main")
+            .collection_name("some-attachments")
+            .build()
+            .unwrap();
+
+        let mut records = client.get().await.unwrap();
+
+        let attachment_metadata = records[0].attachment_metadata().unwrap();
+        assert_eq!(attachment_metadata, None);
+
+        let attachment_body: Option<Vec<u8>> =
+            client.fetch_attachment(&mut records[0]).await.unwrap();
+        assert_eq!(attachment_body, None);
+    }
+
+    #[tokio::test]
+    async fn test_attachment_bad_hash() {
+        init();
+
+        let fake_server = "https://www.example.com/v1";
+
+        let test_responses = vec![
+            // server metadata
+            TestResponse {
+                request_url: fake_server.to_string(),
+                response_status: 200,
+                response_body: json!({
+                    "capabilities": {
+                        "attachments": {
+                            "base_url": format!("{}/attachments", fake_server),
+                        }
+                    }
+                }).to_string().as_bytes().to_vec(),
+                response_headers: Headers::new(),
+            },
+
+            // list of changed collections
+            TestResponse {
+                request_url: format!(
+                    "{}/buckets/monitor/collections/changes/changeset?_expected=0",
+                    fake_server
+                ),
+                response_status: 200,
+                response_body: json!({
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 0,
+                        "bucket": "main",
+                        "collection": "some-attachments"
+                    }],
+                    "timestamp": 0,
+                }).to_string().as_bytes().to_vec(),
+                response_headers: Headers::new(),
+            },
+
+            // changes for this collection
+            TestResponse {
+                request_url: format!(
+                    "{}/buckets/main/collections/some-attachments/changeset?_expected=0",
+                    fake_server
+                ),
+                response_status: 200,
+                response_body: json!({
+                    "metadata": {},
+                    "changes": [{
+                        "id": "record-1",
+                        "last_modified": 0,
+                        "attachment": {
+                            "hash": "f2ca1bb6c7e907d06dafe4687e579fce76b37e4e93b7605022da52e6ccc26fd2",
+                            "size": 5,
+                            "filename": "test-attachment.txt",
+                            "location": "/1",
+                            "mimetype": "text/plain",
+                        },
+                    }],
+                    "timestamp": 0,
+                }).to_string().as_bytes().to_vec(),
+                response_headers: Headers::new(),
+            },
+
+            // The attachment
+            TestResponse {
+                request_url: format!(
+                    "{}/attachments/1",
+                    fake_server
+                ),
+                response_status: 200,
+                response_body: "test\n".as_bytes().to_vec(),
+                response_headers: Headers::new(),
+            },
+
+        ];
+
+        let test_client: Box<dyn Requester + 'static> =
+            Box::new(TestHttpClient::new(test_responses));
+
+        let mut client = Client::builder()
+            .server_url(fake_server)
+            .http_client(test_client)
+            .bucket_name("main")
+            .collection_name("some-attachments")
+            .verifier(Box::new(VerifierWithInvalidHashError {}))
+            .build()
+            .unwrap();
+
+        let mut records = client.get().await.unwrap();
+        let attachment_body = client.fetch_attachment::<Vec<u8>, _>(&mut records[0]).await;
+        assert!(matches!(
+            attachment_body,
+            Err(ClientError::IntegrityError(_))
+        ));
     }
 }

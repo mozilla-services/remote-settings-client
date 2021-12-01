@@ -28,6 +28,7 @@ tokio = { version = "1.8.2", features = ["macros"] }
 remote-settings-client = { path = ".", features = ["viaduct_client"] }
 
 [dependencies]
+anyhow = "1"
 async-trait = "0.1.51"
 base64 = "0.13.0"
 canonical_json = "0.4"
