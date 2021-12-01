@@ -616,7 +616,10 @@ impl Client {
             Some(m) => m,
         };
 
-        let key = format!("attachment:{}/{}:{}", self.bucket_name, self.collection_name, metadata.hash);
+        let key = format!(
+            "attachment:{}/{}:{}",
+            self.bucket_name, self.collection_name, metadata.hash
+        );
         let bytes = match self.storage.retrieve(&key) {
             Ok(bytes) => Ok(bytes),
 
