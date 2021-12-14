@@ -17,7 +17,7 @@ use super::net::{Requester, Response};
 use crate::client::Collection;
 use async_trait::async_trait;
 use log::debug;
-use serde_json::json;
+use serde_json::{json, Value};
 use thiserror::Error;
 use url::{ParseError as URLParseError, Url};
 
@@ -109,7 +109,7 @@ pub trait Verification: Send + Sync {
         let mut sorted_records = collection.records.to_vec();
         sorted_records.sort_by_cached_key(|r| r.id().to_owned());
         let serialized = canonical_json::to_string(&json!({
-            "data": sorted_records,
+            "data": sorted_records.into_iter().map(|r| r.value).collect::<Vec<Value>>(),
             "last_modified": collection.timestamp.to_string()
         }))?;
         let data = format!("Content-Signature:\x00{}", serialized);
@@ -364,6 +364,24 @@ mod tests {
         assert!(err
             .to_string()
             .eq("certificate could not be downloaded from https://example.com/file.pem: HTTP 404"));
+    }
+
+    #[tokio::test]
+    async fn test_records_canonicaljson_serialization() {
+        let verifier = DummyVerifier {};
+
+        let collection = Collection {
+            bid: "".to_string(),
+            cid: "".to_string(),
+            metadata: json!({}),
+            records: vec![Record::new(json!({"last_modified": 42, "id": "bonjour"}))],
+            timestamp: 1337,
+            signer: "".to_string(),
+        };
+
+        let bytes = verifier.serialize_data(&collection).unwrap();
+        let s = String::from_utf8(bytes).unwrap();
+        assert_eq!(s, "Content-Signature:\u{0}{\"data\":[{\"id\":\"bonjour\",\"last_modified\":42}],\"last_modified\":\"1337\"}");
     }
 
     #[tokio::test]
