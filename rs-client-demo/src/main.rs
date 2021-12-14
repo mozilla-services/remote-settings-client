@@ -22,7 +22,7 @@ pub struct LatestChangeEntry {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>>{
     env_logger::init();
     set_backend(&ReqwestBackend).unwrap();
 
@@ -34,10 +34,8 @@ async fn main() {
         .build()
         .unwrap();
 
-    match client.get().await {
-        Ok(records) => println!("{} records.", records.len()),
-        Err(error) => println!("FAILED ({:?})", error),
-    };
+    let records = client.get().await?;
+    println!("Found {} records.", records.len());
 
     let url = "https://firefox.settings.services.mozilla.com/v1/buckets/monitor/collections/changes/changeset?_expected=0";
     let response =
@@ -45,8 +43,6 @@ async fn main() {
             .await
             .unwrap();
     let collections: KintoPluralResponse<LatestChangeEntry> = response.json().unwrap();
-
-    let mut failed_fetch = Vec::new();
 
     for collection in &collections.changes {
         let cid = format!("{}/{}", collection.bucket, collection.collection);
@@ -79,14 +75,9 @@ async fn main() {
             .build()
             .unwrap();
 
-        match client.get().await {
-            Ok(records) => println!("{} records.", records.len()),
-            Err(error) => {
-                println!("FAILED ({:?})", error);
-                failed_fetch.push(cid);
-            }
-        };
+        let records = client.get().await?;
+        println!("Found {} records for {}.", records.len(), cid);
     }
 
-    println!("The failed collections are {:?}", failed_fetch);
+    Ok(())
 }
