@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use crate::client::{net::Headers, net::Method, net::Requester, net::Response};
+use std::collections::HashMap;
 
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
@@ -10,6 +11,11 @@ use thiserror::Error;
 use url::{ParseError as URLParseError, Url};
 
 pub type KintoObject = serde_json::Value;
+
+#[derive(Deserialize, Debug)]
+struct KintoResponse<T> {
+    data: T,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChangesetResponse {
@@ -121,8 +127,114 @@ pub async fn get_changeset(
     Ok(changeset)
 }
 
+pub async fn put_record<T>(
+    requester: &'_ (dyn Requester + 'static),
+    server: &str,
+    authorization: Option<String>,
+    bid: &str,
+    cid: &str,
+    rid: &str,
+    data: &KintoObject,
+) -> Result<T>
+where
+    T: From<KintoObject>,
+{
+    let record_url = format!(
+        "{}/collections/{}/records/{}",
+        _workspace_url(server, bid),
+        cid,
+        rid,
+    );
+
+    let mut json_body = HashMap::new();
+    json_body.insert("data", data);
+    let json_bytes: Vec<u8> = serde_json::to_string(&json_body)?.into();
+
+    let response = _request_resource(
+        requester,
+        authorization,
+        Method::PUT,
+        record_url,
+        json_bytes,
+    )
+    .await?;
+    let kr: KintoResponse<KintoObject> = serde_json::from_slice(&response.body)?;
+    Ok(kr.data.into())
+}
+
+pub async fn delete_record<T>(
+    requester: &'_ (dyn Requester + 'static),
+    server: &str,
+    authorization: Option<String>,
+    bid: &str,
+    cid: &str,
+    rid: &str,
+) -> Result<T>
+where
+    T: From<KintoObject>,
+{
+    let record_url = format!(
+        "{}/collections/{}/records/{}",
+        _workspace_url(server, bid),
+        cid,
+        rid,
+    );
+    let response =
+        _request_resource(requester, authorization, Method::DELETE, record_url, vec![]).await?;
+    let kr: KintoResponse<KintoObject> = serde_json::from_slice(&response.body)?;
+    Ok(kr.data.into())
+}
+
+pub async fn patch_collection<T>(
+    requester: &'_ (dyn Requester + 'static),
+    server: &str,
+    authorization: Option<String>,
+    bid: &str,
+    cid: &str,
+    data: &KintoObject,
+) -> Result<T>
+where
+    T: From<KintoObject>,
+{
+    let collection_url = format!("{}/collections/{}", _workspace_url(server, bid), cid);
+
+    let mut json_body = HashMap::new();
+    json_body.insert("data", data);
+    let json_bytes: Vec<u8> = serde_json::to_string(&json_body)?.into();
+
+    let response = _request_resource(
+        requester,
+        authorization,
+        Method::PATCH,
+        collection_url,
+        json_bytes,
+    )
+    .await?;
+    let kr: KintoResponse<KintoObject> = serde_json::from_slice(&response.body)?;
+    Ok(kr.data.into())
+}
+
+fn _workspace_url(server: &str, bid: &str) -> String {
+    // This client will use the workspace bucket for the
+    // write operations.
+    format!(
+        "{}/buckets/{}",
+        server,
+        match bid
+            .replace("-preview", "")
+            .replace("-workspace", "")
+            .as_str()
+        {
+            "blocklists" => "staging".into(),
+            "preview" => "staging".into(),
+            "security-state" => "security-state-staging".into(),
+            b => format!("{}-workspace", b),
+        }
+    )
+}
+
 async fn _request_resource(
-    requester: &Box<dyn Requester + 'static>,
+    requester: &'_ (dyn Requester + 'static),
     authorization: Option<String>,
     method: Method,
     url: String,
@@ -189,9 +301,13 @@ async fn _request_resource(
 
 #[cfg(test)]
 mod tests {
-    use super::{get_changeset, get_latest_change_timestamp, KintoError};
+    use super::{
+        delete_record, get_changeset, get_latest_change_timestamp, patch_collection, put_record,
+        KintoError, KintoObject,
+    };
     use crate::client::net::{Headers, Method, Requester, TestHttpClient, TestResponse};
     use httpmock::MockServer;
+    use serde_json::json;
 
     fn init() {
         let _ = env_logger::builder().is_test(true).try_init();
@@ -493,5 +609,141 @@ mod tests {
 
         redirects_mock.delete();
         changeset_mock.delete();
+    }
+
+    #[tokio::test]
+    async fn test_put_record() {
+        init();
+
+        let mock_server = MockServer::start();
+
+        let put_record_mock = mock_server.mock(|when, then| {
+            when.method("PUT")
+                .path("/buckets/main-workspace/collections/cid/records/xyz")
+                .body_contains("\"field\":\"value\"")
+                .header_exists("Authorization");
+            then.status(200).body(
+                r#"{
+                    "data": {
+                        "id": "xyz",
+                        "last_modified": 42,
+                        "field": "value"
+                    }
+                }"#,
+            );
+        });
+
+        let _ = viaduct::set_backend(&viaduct_reqwest::ReqwestBackend);
+        let viaduct_client: Box<dyn Requester + 'static> =
+            Box::new(crate::client::net::ViaductClient);
+
+        let res: KintoObject = put_record(
+            viaduct_client.as_ref(),
+            &mock_server.url(""),
+            Some("Basic abc".into()),
+            "main",
+            "cid",
+            "xyz",
+            &json!({
+                "field": "value"
+            }),
+        )
+        .await
+        .unwrap();
+
+        put_record_mock.assert();
+
+        assert_eq!(res["id"], "xyz");
+        assert_eq!(res["last_modified"], 42);
+        assert_eq!(res["field"], "value");
+    }
+
+    #[tokio::test]
+    async fn test_delete_record() {
+        init();
+
+        let mock_server = MockServer::start();
+
+        let delete_record_mock = mock_server.mock(|when, then| {
+            when.method("DELETE")
+                .path("/buckets/main-workspace/collections/cid/records/xyz")
+                .header_exists("Authorization");
+            then.status(200).body(
+                r#"{
+                    "data": {
+                        "id": "xyz",
+                        "last_modified": 42,
+                        "deleted": true
+                    }
+                }"#,
+            );
+        });
+
+        let _ = viaduct::set_backend(&viaduct_reqwest::ReqwestBackend);
+        let viaduct_client: Box<dyn Requester + 'static> =
+            Box::new(crate::client::net::ViaductClient);
+
+        let res: KintoObject = delete_record(
+            viaduct_client.as_ref(),
+            &mock_server.url(""),
+            Some("Basic abc".into()),
+            "main",
+            "cid",
+            "xyz",
+        )
+        .await
+        .unwrap();
+
+        delete_record_mock.assert();
+
+        assert_eq!(res["id"], "xyz");
+        assert_eq!(res["last_modified"], 42);
+        assert_eq!(res["deleted"], true);
+    }
+
+    #[tokio::test]
+    async fn test_patch_collection() {
+        init();
+
+        let mock_server = MockServer::start();
+
+        let patch_collection_mock = mock_server.mock(|when, then| {
+            when.method("PATCH")
+                .path("/buckets/main-workspace/collections/cid")
+                .body_contains("\"status\":\"to-sign\"")
+                .header_exists("Authorization");
+            then.status(200).body(
+                r#"{
+                    "data": {
+                        "id": "cid",
+                        "last_modified": 42,
+                        "status": "signed"
+                    }
+                }"#,
+            );
+        });
+
+        let _ = viaduct::set_backend(&viaduct_reqwest::ReqwestBackend);
+        let viaduct_client: Box<dyn Requester + 'static> =
+            Box::new(crate::client::net::ViaductClient);
+
+        let res: KintoObject = patch_collection(
+            viaduct_client.as_ref(),
+            &mock_server.url(""),
+            Some("Basic abc".into()),
+            "main-preview",
+            "cid",
+            &json!({
+                "status": "to-sign"
+            }),
+        )
+        .await
+        .unwrap();
+
+        patch_collection_mock.assert();
+
+        assert_eq!(res["id"], "cid");
+        assert_eq!(res["last_modified"], 42);
+        assert_eq!(res["status"], "signed");
     }
 }

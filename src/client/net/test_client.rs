@@ -58,10 +58,12 @@ impl Requester for TestHttpClient {
         for r in &self.test_responses {
             // Only respond to the specific URL if we're told to.
             if r.request_method == method && url.to_string().eq(&r.request_url) {
+                let mut headers = r.response_headers.clone();
+                headers.insert("Content-Type".into(), "application/json".into());
                 return Ok(Response {
                     status: r.response_status,
                     body: r.response_body.clone(),
-                    headers: r.response_headers.clone(),
+                    headers,
                 });
             }
         }

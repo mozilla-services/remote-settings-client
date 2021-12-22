@@ -4,6 +4,8 @@
 
 **Bug fixes**
 **New features**
+- Add support for write methods (#172)
+
 **Internal Changes**
 - Bump rc_crypto from v87.1.0 to v91.0.1 (#171, #185)
 

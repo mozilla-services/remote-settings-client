@@ -9,7 +9,7 @@ mod storage;
 
 use anyhow::{anyhow, Context};
 use log::{debug, info};
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     convert::{TryFrom, TryInto},
@@ -26,7 +26,10 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use kinto_http::{get_changeset, get_latest_change_timestamp, KintoError, KintoObject};
+use kinto_http::{
+    delete_record, get_changeset, get_latest_change_timestamp, patch_collection, put_record,
+    KintoError, KintoObject,
+};
 pub use signatures::{SignatureError, Verification};
 pub use storage::{
     dummy_storage::DummyStorage, file_storage::FileStorage, memory_storage::MemoryStorage, Storage,
@@ -325,6 +328,40 @@ pub struct Collection {
 /// Attachment metadata contain a hash of the expected content. The provided
 /// verifier will be used to confirm that hash, and if it does not match a
 /// verification error will be returned.
+///
+/// ## Write Operations
+///
+/// ```no_run
+/// # use remote_settings_client::{Client, Record};
+/// # use serde_json::json;
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = Client::builder()
+///   .authorization("Bearer abcdefghijkl")
+///   .collection_name("cid")
+///   .build()
+///   .unwrap();
+///
+/// client
+///   .store_record(Record::new(json!({
+///     "id": "my-key",
+///     "foo": "bar"
+///   }))).await?;
+///
+/// // Request review from peers.
+/// client.request_review("I made changes").await?;
+///
+/// // Approve changes (publish).
+/// let peer_reviewer = Client::builder()
+///   .authorization("Bearer zyxwvutsrqp")
+///   .collection_name("cid")
+///   .build()
+///   .unwrap();
+///
+/// peer_reviewer.approve_changes().await?;
+///
+/// # Ok(())
+/// # }
 /// ```
 ///
 #[derive(Builder, Debug)]
@@ -355,7 +392,7 @@ pub struct Client {
     http_client: Box<dyn net::Requester + 'static>,
     #[builder(default = "None")]
     server_info: Option<Value>,
-    #[builder(default = "None")]
+    #[builder(setter(into, strip_option), default = "None")]
     authorization: Option<String>,
 }
 
@@ -678,6 +715,117 @@ impl Client {
             .context("parsing attachment to requested type")
             .map_err(ClientError::AttachmentMetadataError)?;
         Ok(Some(rv))
+    }
+
+    /// Store a record on the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `record` - the record to store.
+    pub async fn store_record(&self, record: Record) -> Result<KintoObject, ClientError> {
+        put_record(
+            self.http_client.as_ref(),
+            &self.server_url,
+            self.authorization.clone(),
+            &self.bucket_name,
+            &self.collection_name,
+            record.id(),
+            &record.value,
+        )
+        .await
+        .map_err(ClientError::APIError)
+    }
+
+    /// Delete a record from the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - the record id to delete.
+    pub async fn delete_record(&self, id: &str) -> Result<KintoObject, ClientError> {
+        delete_record(
+            self.http_client.as_ref(),
+            &self.server_url,
+            self.authorization.clone(),
+            &self.bucket_name,
+            &self.collection_name,
+            id,
+        )
+        .await
+        .map_err(ClientError::APIError)
+    }
+
+    /// Request review from configured reviewers.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - the editor message.
+    pub async fn request_review(&self, message: &str) -> Result<KintoObject, ClientError> {
+        patch_collection(
+            self.http_client.as_ref(),
+            &self.server_url,
+            self.authorization.clone(),
+            &self.bucket_name,
+            &self.collection_name,
+            &json!({
+                "status": "to-review",
+                "last_editor_comment": message,
+            }),
+        )
+        .await
+        .map_err(ClientError::APIError)
+    }
+
+    /// Reject review.
+    ///
+    /// # Arguments
+    ///
+    /// * `message` - the editor message.
+    pub async fn reject_review(&self, message: &str) -> Result<KintoObject, ClientError> {
+        patch_collection(
+            self.http_client.as_ref(),
+            &self.server_url,
+            self.authorization.clone(),
+            &self.bucket_name,
+            &self.collection_name,
+            &json!({
+                "status": "in-progress",
+                "last_editor_comment": message,
+            }),
+        )
+        .await
+        .map_err(ClientError::APIError)
+    }
+
+    /// Approve and publish changes.
+    pub async fn approve_changes(&self) -> Result<KintoObject, ClientError> {
+        patch_collection(
+            self.http_client.as_ref(),
+            &self.server_url,
+            self.authorization.clone(),
+            &self.bucket_name,
+            &self.collection_name,
+            &json!({
+                "status": "to-sign",
+            }),
+        )
+        .await
+        .map_err(ClientError::APIError)
+    }
+
+    /// Rollback pending changes.
+    pub async fn rollback_changes(&self) -> Result<KintoObject, ClientError> {
+        patch_collection(
+            self.http_client.as_ref(),
+            &self.server_url,
+            self.authorization.clone(),
+            &self.bucket_name,
+            &self.collection_name,
+            &json!({
+                "status": "to-rollback",
+            }),
+        )
+        .await
+        .map_err(ClientError::APIError)
     }
 }
 
@@ -1857,5 +2005,42 @@ mod tests {
             attachment_body,
             Err(ClientError::IntegrityError(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn test_request_review() {
+        init();
+
+        let mock_server = MockServer::start();
+        let patch_collection_mock = mock_server.mock(|when, then| {
+            when.method("PATCH")
+                .path("/buckets/main-workspace/collections/onecrl")
+                .body_contains("\"status\":\"to-review\"")
+                .body_contains("\"last_editor_comment\":\"Made changes\"")
+                .header_exists("Authorization");
+            then.status(200).body(
+                r#"{
+                    "data": {
+                        "id": "cid",
+                        "last_modified": 42,
+                        "status": "to-review",
+                        "last_editor_comment": "Made changes"
+                    }
+                }"#,
+            );
+        });
+
+        let client = Client::builder()
+            .server_url(mock_server.url(""))
+            .http_client(Box::new(ViaductClient))
+            .collection_name("onecrl")
+            .authorization("Bearer m0z1ll4")
+            .build()
+            .unwrap();
+
+        let res = client.request_review("Made changes").await.unwrap();
+        assert_eq!(res["status"], "to-review");
+
+        patch_collection_mock.assert();
     }
 }
