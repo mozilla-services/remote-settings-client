@@ -381,7 +381,7 @@ impl Client {
         ClientBuilder::default()
     }
 
-    pub fn _storage_key(&self) -> String {
+    fn _storage_key(&self) -> String {
         format!("{}/{}:collection", self.bucket_name, self.collection_name)
     }
 
