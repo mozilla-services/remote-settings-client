@@ -2,10 +2,10 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::{Headers, Requester, Response};
+use super::{Headers, Method, Requester, Response};
 
 use async_trait::async_trait;
-use viaduct::Request as ViaductRequest;
+use viaduct::{header_names, Request as ViaductRequest};
 
 /// An HTTP client that uses [Viaduct](https://github.com/mozilla/application-services/tree/main/components/viaduct).
 #[derive(Debug)]
@@ -14,10 +14,39 @@ pub struct ViaductClient;
 #[async_trait]
 impl Requester for ViaductClient {
     async fn get(&self, url: url::Url) -> Result<Response, ()> {
-        let res = tokio::task::spawn_blocking(move || match ViaductRequest::get(url).send() {
+        self.request_json(Method::GET, url, vec![], Headers::default())
+            .await
+    }
+
+    async fn request_json(
+        &self,
+        method: Method,
+        url: url::Url,
+        data: Vec<u8>,
+        headers: Headers,
+    ) -> Result<Response, ()> {
+        let mut request = match method {
+            Method::DELETE => ViaductRequest::delete(url),
+            Method::GET => ViaductRequest::get(url),
+            Method::PATCH => ViaductRequest::put(url), // XXX patch()! https://github.com/mozilla/application-services/pull/4751
+            Method::PUT => ViaductRequest::put(url),
+            Method::POST => ViaductRequest::post(url),
+        }
+        // Set body.
+        .body(data);
+        // Set headers on request.
+        request = request
+            .header(header_names::CONTENT_TYPE, "application/json")
+            .map_err(|_| ())?;
+        for (key, value) in headers {
+            request = request.header(key, value.as_str()).map_err(|_| ())?;
+        }
+
+        let res = tokio::task::spawn_blocking(move || match request.send() {
             Err(e) => {
                 log::error!(
-                    "ViaductClient - unable to submit GET request. {:?}",
+                    "ViaductClient - unable to submit {:?} request. {:?}",
+                    method,
                     e.to_string()
                 );
                 Err(())

@@ -702,7 +702,7 @@ fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -
 
 #[cfg(test)]
 mod tests {
-    use super::net::{Headers, Requester, TestHttpClient, TestResponse};
+    use super::net::{Headers, Method, Requester, TestHttpClient, TestResponse};
     use super::signatures::{SignatureError, Verification};
     use super::{
         Client, ClientError, Collection, DummyStorage, DummyVerifier, MemoryStorage, Record,
@@ -1450,6 +1450,7 @@ mod tests {
         let test_responses: Vec<_> = [777, 888]
             .iter()
             .map(|&expected| TestResponse {
+                request_method: Method::GET,
                 request_url: format!(
                     "{}/buckets/main/collections/nimbus/changeset?_expected={}",
                     fake_server, expected
@@ -1499,6 +1500,7 @@ mod tests {
         let test_responses = vec![
             // server metadata
             TestResponse {
+                request_method: Method::GET,
                 request_url: fake_server.to_string(),
                 response_status: 200,
                 response_body: json!({
@@ -1513,6 +1515,7 @@ mod tests {
 
             // list of changed collections
             TestResponse {
+                request_method: Method::GET,
                 request_url: format!(
                     "{}/buckets/monitor/collections/changes/changeset?_expected=0",
                     fake_server
@@ -1533,6 +1536,7 @@ mod tests {
 
             // changes for this collection
             TestResponse {
+                request_method: Method::GET,
                 request_url: format!(
                     "{}/buckets/main/collections/some-attachments/changeset?_expected=0",
                     fake_server
@@ -1562,6 +1566,7 @@ mod tests {
 
             // fake signature
             TestResponse {
+                request_method: Method::GET,
                 request_url: format!("{}/x5u", fake_server),
                 response_status: 200,
                 response_body: vec![],
@@ -1570,6 +1575,7 @@ mod tests {
 
             // The attachment
             TestResponse {
+                request_method: Method::GET,
                 request_url: format!(
                     "{}/attachments/1",
                     fake_server
@@ -1668,6 +1674,7 @@ mod tests {
         let test_responses = vec![
             // server metadata
             TestResponse {
+                request_method: Method::GET,
                 request_url: fake_server.to_string(),
                 response_status: 200,
                 response_body: json!({
@@ -1684,6 +1691,7 @@ mod tests {
             },
             // list of changed collections
             TestResponse {
+                request_method: Method::GET,
                 request_url: format!(
                     "{}/buckets/monitor/collections/changes/changeset?_expected=0",
                     fake_server
@@ -1706,6 +1714,7 @@ mod tests {
             },
             // changes for this collection
             TestResponse {
+                request_method: Method::GET,
                 request_url: format!(
                     "{}/buckets/main/collections/some-attachments/changeset?_expected=0",
                     fake_server
@@ -1756,6 +1765,7 @@ mod tests {
         let test_responses = vec![
             // server metadata
             TestResponse {
+                request_method: Method::GET,
                 request_url: fake_server.to_string(),
                 response_status: 200,
                 response_body: json!({
@@ -1770,6 +1780,7 @@ mod tests {
 
             // list of changed collections
             TestResponse {
+                request_method: Method::GET,
                 request_url: format!(
                     "{}/buckets/monitor/collections/changes/changeset?_expected=0",
                     fake_server
@@ -1790,6 +1801,7 @@ mod tests {
 
             // changes for this collection
             TestResponse {
+                request_method: Method::GET,
                 request_url: format!(
                     "{}/buckets/main/collections/some-attachments/changeset?_expected=0",
                     fake_server
@@ -1815,6 +1827,7 @@ mod tests {
 
             // The attachment
             TestResponse {
+                request_method: Method::GET,
                 request_url: format!(
                     "{}/attachments/1",
                     fake_server

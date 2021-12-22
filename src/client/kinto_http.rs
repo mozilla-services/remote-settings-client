@@ -2,7 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-use crate::client::{net::Requester, net::Response};
+use crate::client::{net::Headers, net::Method, net::Requester, net::Response};
+
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -29,8 +30,9 @@ pub struct ErrorResponse {
 
 #[derive(Debug, Error)]
 pub enum KintoError {
-    #[error("a server error occured on GET {}: {}", url, info)]
+    #[error("a server error occured on {:?} {}: {}", method, url, info)]
     ServerError {
+        method: Method,
         url: String,
         response: Response,
         info: ErrorResponse,
@@ -110,9 +112,36 @@ pub async fn get_changeset(
         "{}/buckets/{}/collections/{}/changeset?_expected={}{}",
         server, bid, cid, expected, since_param
     );
-    info!("Fetch {}...", url);
+    let response = _request_resource(requester, None, Method::GET, url, vec![]).await?;
+    let mut changeset: ChangesetResponse = serde_json::from_slice(&response.body)?;
+
+    // Check if server is indicating to clients to back-off.
+    changeset.backoff = response.headers.get("backoff").and_then(|v| v.parse().ok());
+
+    Ok(changeset)
+}
+
+async fn _request_resource(
+    requester: &Box<dyn Requester + 'static>,
+    authorization: Option<String>,
+    method: Method,
+    url: String,
+    data: Vec<u8>,
+) -> Result<Response> {
+    let mut headers = Headers::new();
+    // Add a specific User-Agent
+    headers.insert(
+        "User-Agent".into(),
+        format!("remote_settings/{}", env!("CARGO_PKG_VERSION")),
+    );
+    // Add Authorization (for write methods)
+    if let Some(auth) = authorization {
+        headers.insert("Authorization".into(), auth);
+    }
+
+    info!("{:?} {}...", method, url);
     let response = requester
-        .get(Url::parse(&url)?)
+        .request_json(method, Url::parse(&url)?, data, headers)
         .await
         .map_err(|_err| KintoError::HTTPBackendError())?;
 
@@ -140,6 +169,7 @@ pub async fn get_changeset(
                 .map_or_else(|| None, |v| v.parse::<u64>().ok());
 
             return Err(KintoError::ServerError {
+                method,
                 url,
                 response,
                 info,
@@ -154,18 +184,13 @@ pub async fn get_changeset(
         .map_or_else(|| -1, |v| v.parse().unwrap_or(-1));
 
     debug!("Download {:?} bytes...", size);
-    let mut changeset: ChangesetResponse = serde_json::from_slice(&response.body)?;
-
-    // Check if server is indicating to clients to back-off.
-    changeset.backoff = response.headers.get("backoff").and_then(|v| v.parse().ok());
-
-    Ok(changeset)
+    Ok(response)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{get_changeset, get_latest_change_timestamp, KintoError};
-    use crate::client::net::{Headers, Requester, TestHttpClient, TestResponse};
+    use crate::client::net::{Headers, Method, Requester, TestHttpClient, TestResponse};
     use httpmock::MockServer;
 
     fn init() {
@@ -178,6 +203,7 @@ mod tests {
 
         let test_client: Box<dyn Requester + 'static> =
             Box::new(TestHttpClient::new(vec![TestResponse {
+                request_method: Method::GET,
                 request_url:
                     "https://example.com/v1/buckets/monitor/collections/changes/changeset?_expected=0"
                         .to_string(),
@@ -240,6 +266,7 @@ mod tests {
 
         let test_client: Box<dyn Requester + 'static> =
             Box::new(TestHttpClient::new(vec![TestResponse {
+                request_method: Method::GET,
                 request_url:
                     "https://example.com/buckets/monitor/collections/changes/changeset?_expected=0"
                         .to_string(),
@@ -269,6 +296,7 @@ mod tests {
 
         let test_client: Box<dyn Requester + 'static> =
             Box::new(TestHttpClient::new(vec![TestResponse {
+                request_method: Method::GET,
                 request_url:
                     "https://example.com/v1/buckets/monitor/collections/changes/changeset?_expected=0"
                         .to_string(),
@@ -317,6 +345,7 @@ mod tests {
 
         let test_client: Box<dyn Requester + 'static> =
             Box::new(TestHttpClient::new(vec![TestResponse {
+                request_method: Method::GET,
                 request_url:
                     "https://example.com/v1/buckets/main/collections/cfr/changeset?_expected=451"
                         .to_string(),
@@ -369,6 +398,7 @@ mod tests {
 
         let test_client: Box<dyn Requester + 'static> =
             Box::new(TestHttpClient::new(vec![TestResponse {
+                request_method: Method::GET,
                 request_url:
                     "https://example.com/v1/buckets/main/collections/cfr/changeset?_expected=42"
                         .to_string(),

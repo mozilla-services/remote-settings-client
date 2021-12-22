@@ -24,6 +24,16 @@ pub use url::Url;
 /// A convenience type to represent raw HTTP headers.
 pub type Headers = HashMap<String, String>;
 
+/// HTTP method.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Method {
+    GET,
+    PATCH,
+    POST,
+    PUT,
+    DELETE,
+}
+
 /// A response coming from an HTTP endpoint.
 #[derive(Debug)]
 pub struct Response {
@@ -63,4 +73,20 @@ pub trait Requester: std::fmt::Debug + Send + Sync {
     ///
     /// * `url` - the URL path to perform the HTTP GET on.
     async fn get(&self, url: Url) -> Result<Response, ()>;
+
+    /// Perform a JSON request toward the needed resource.
+    ///
+    /// # Arguments
+    ///
+    /// * `method` - the HTTP method.
+    /// * `url` - the URL path to perform the request.
+    /// * `data` - the body content to send.
+    /// * `headers` - the headers to send.
+    async fn request_json(
+        &self,
+        method: Method,
+        url: Url,
+        data: Vec<u8>,
+        headers: Headers,
+    ) -> Result<Response, ()>;
 }
