@@ -432,7 +432,7 @@ impl Client {
                 if !self.trust_local {
                     debug!("Verify signature of local data.");
                     self.verifier
-                        .verify(&self.http_client, &stored, &self.cert_root_hash)
+                        .verify(self.http_client.as_ref(), &stored, &self.cert_root_hash)
                         .await?;
                 }
 
@@ -474,7 +474,7 @@ impl Client {
             None => {
                 debug!("Obtain current timestamp.");
                 get_latest_change_timestamp(
-                    &self.http_client,
+                    self.http_client.as_ref(),
                     &self.server_url,
                     &self.bucket_name,
                     &self.collection_name,
@@ -488,7 +488,7 @@ impl Client {
             if up_to_date
                 && self
                     .verifier
-                    .verify(&self.http_client, collection, &self.cert_root_hash)
+                    .verify(self.http_client.as_ref(), collection, &self.cert_root_hash)
                     .await
                     .is_ok()
             {
@@ -504,7 +504,7 @@ impl Client {
         };
 
         let changeset = get_changeset(
-            &self.http_client,
+            self.http_client.as_ref(),
             &self.server_url,
             &self.bucket_name,
             &self.collection_name,
@@ -537,7 +537,7 @@ impl Client {
 
         debug!("Verify signature after merge of changes with previous local data.");
         self.verifier
-            .verify(&self.http_client, &collection, &self.cert_root_hash)
+            .verify(self.http_client.as_ref(), &collection, &self.cert_root_hash)
             .await?;
 
         debug!("Store collection with key={:?}", storage_key);
@@ -742,7 +742,7 @@ mod tests {
 
         async fn verify(
             &self,
-            _requester: &Box<dyn Requester + 'static>,
+            _requester: &'_ (dyn Requester + 'static),
             _collection: &Collection,
             _: &str,
         ) -> Result<(), SignatureError> {
@@ -778,7 +778,7 @@ mod tests {
 
         async fn verify(
             &self,
-            _requester: &Box<dyn Requester + 'static>,
+            _requester: &'_ (dyn Requester + 'static),
             _collection: &Collection,
             _: &str,
         ) -> Result<(), SignatureError> {
