@@ -28,7 +28,7 @@ impl Requester for ViaductClient {
         let mut request = match method {
             Method::DELETE => ViaductRequest::delete(url),
             Method::GET => ViaductRequest::get(url),
-            Method::PATCH => ViaductRequest::put(url), // XXX patch()! https://github.com/mozilla/application-services/pull/4751
+            Method::PATCH => ViaductRequest::patch(url),
             Method::PUT => ViaductRequest::put(url),
             Method::POST => ViaductRequest::post(url),
         }
