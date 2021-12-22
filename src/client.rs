@@ -355,6 +355,8 @@ pub struct Client {
     http_client: Box<dyn net::Requester + 'static>,
     #[builder(default = "None")]
     server_info: Option<Value>,
+    #[builder(default = "None")]
+    authorization: Option<String>,
 }
 
 impl Default for Client {
@@ -824,7 +826,7 @@ mod tests {
         assert!(client.sync_if_empty);
         assert!(client.trust_local);
         // And Debug format
-        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", signer_name: \"remote-settings.content-signature.mozilla.org\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, backoff_until: None, cert_root_hash: \"97:E8:BA:9C:F1:2F:B3:DE:53:CC:42:A4:E6:57:7E:D6:4D:F4:93:C2:47:B4:14:FE:A0:36:81:8D:38:23:56:0E\", http_client: DummyClient, server_info: None }");
+        assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", signer_name: \"remote-settings.content-signature.mozilla.org\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, backoff_until: None, cert_root_hash: \"97:E8:BA:9C:F1:2F:B3:DE:53:CC:42:A4:E6:57:7E:D6:4D:F4:93:C2:47:B4:14:FE:A0:36:81:8D:38:23:56:0E\", http_client: DummyClient, server_info: None, authorization: None }");
     }
 
     #[tokio::test]
