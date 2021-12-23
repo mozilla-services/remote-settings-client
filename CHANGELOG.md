@@ -5,7 +5,7 @@
 **Bug fixes**
 **New features**
 **Internal Changes**
-
+- Bump rc_crypto from v87.1.0 to v87.2.0 (#171)
 
 ## 1.0.1 (2021-12-14)
 
