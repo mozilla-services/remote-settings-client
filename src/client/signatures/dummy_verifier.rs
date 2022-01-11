@@ -25,7 +25,7 @@ impl Verification for DummyVerifier {
 
     async fn verify(
         &self,
-        _requester: &Box<dyn Requester + 'static>,
+        _requester: &'_ (dyn Requester + 'static),
         _collection: &Collection,
         _: &str,
     ) -> Result<(), SignatureError> {

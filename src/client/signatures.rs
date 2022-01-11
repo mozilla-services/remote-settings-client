@@ -79,7 +79,7 @@ fn epoch_seconds() -> u64 {
 pub trait Verification: Send + Sync {
     async fn fetch_certificate_chain(
         &self,
-        requester: &Box<dyn Requester + 'static>,
+        requester: &'_ (dyn Requester + 'static),
         collection: &Collection,
     ) -> Result<Vec<u8>, SignatureError> {
         // Get public key from collection metadata (PEM URL is `x5u` field).
@@ -128,7 +128,7 @@ pub trait Verification: Send + Sync {
     /// the corresponding error is returned.
     async fn verify(
         &self,
-        requester: &Box<dyn Requester + 'static>,
+        requester: &'_ (dyn Requester + 'static),
         collection: &Collection,
         root_hash: &str,
     ) -> Result<(), SignatureError> {
@@ -255,7 +255,7 @@ mod tests {
         for verifier in &verifiers {
             assert_eq!(
                 verifier
-                    .verify(&viaduct_client, &collection, root_hash)
+                    .verify(viaduct_client.as_ref(), &collection, root_hash)
                     .await,
                 expected_result
             );
@@ -284,7 +284,7 @@ mod tests {
         let dummy_client: Box<dyn Requester + 'static> = Box::new(DummyClient);
 
         let err = verifier
-            .fetch_certificate_chain(&dummy_client, &collection)
+            .fetch_certificate_chain(dummy_client.as_ref(), &collection)
             .await
             .unwrap_err();
         match err {
@@ -327,7 +327,7 @@ mod tests {
             let viaduct_client: Box<dyn Requester + 'static> =
                 Box::new(crate::client::net::ViaductClient);
             let err = verifier
-                .fetch_certificate_chain(&viaduct_client, &collection)
+                .fetch_certificate_chain(viaduct_client.as_ref(), &collection)
                 .await
                 .unwrap_err();
             assert!(err.to_string().contains(error), "{}", err.to_string());
@@ -357,7 +357,7 @@ mod tests {
             signer: "".to_string(),
         };
         let err = verifier
-            .fetch_certificate_chain(&test_client, &collection)
+            .fetch_certificate_chain(test_client.as_ref(), &collection)
             .await
             .unwrap_err();
 

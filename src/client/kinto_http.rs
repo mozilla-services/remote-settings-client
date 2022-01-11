@@ -10,11 +10,6 @@ use url::{ParseError as URLParseError, Url};
 
 pub type KintoObject = serde_json::Value;
 
-#[derive(Deserialize, Debug)]
-struct KintoPluralResponse<T> {
-    data: Vec<T>,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ChangesetResponse {
     pub metadata: KintoObject,
@@ -74,7 +69,7 @@ impl std::fmt::Display for ErrorResponse {
 }
 
 pub async fn get_latest_change_timestamp(
-    requester: &Box<dyn Requester + 'static>,
+    requester: &'_ (dyn Requester + 'static),
     server: &str,
     bid: &str,
     cid: &str,
@@ -103,7 +98,7 @@ pub async fn get_latest_change_timestamp(
 
 /// Fetches the collection content from the server.
 pub async fn get_changeset(
-    requester: &Box<dyn Requester + 'static>,
+    requester: &'_ (dyn Requester + 'static),
     server: &str,
     bid: &str,
     cid: &str,
@@ -206,7 +201,7 @@ mod tests {
             }]));
 
         let res = get_latest_change_timestamp(
-            &test_client,
+            test_client.as_ref(),
             "https://example.com/v1",
             "main",
             "url-classifier-skip-urls",
@@ -225,10 +220,14 @@ mod tests {
         let viaduct_client: Box<dyn Requester + 'static> =
             Box::new(crate::client::net::ViaductClient);
 
-        let err =
-            get_latest_change_timestamp(&viaduct_client, "%^", "main", "url-classifier-skip-urls")
-                .await
-                .unwrap_err();
+        let err = get_latest_change_timestamp(
+            viaduct_client.as_ref(),
+            "%^",
+            "main",
+            "url-classifier-skip-urls",
+        )
+        .await
+        .unwrap_err();
         assert_eq!(
             err.to_string(),
             "bad URL format: relative URL without a base"
@@ -254,7 +253,7 @@ mod tests {
             }]));
 
         let err = get_latest_change_timestamp(
-            &test_client,
+            test_client.as_ref(),
             "https://example.com",
             "main",
             "url-classifier-skip-urls",
@@ -293,7 +292,7 @@ mod tests {
             }]));
 
         let err = get_latest_change_timestamp(
-            &test_client,
+            test_client.as_ref(),
             "https://example.com/v1",
             "main",
             "url-classifier-skip-urls",
@@ -338,7 +337,7 @@ mod tests {
             }]));
 
         let err = get_changeset(
-            &test_client,
+            test_client.as_ref(),
             "https://example.com/v1",
             "main",
             "cfr",
@@ -386,7 +385,7 @@ mod tests {
             }]));
 
         let err = get_changeset(
-            &test_client,
+            test_client.as_ref(),
             "https://example.com/v1",
             "main",
             "cfr",
@@ -448,10 +447,14 @@ mod tests {
         let _ = viaduct::set_backend(&viaduct_reqwest::ReqwestBackend);
         let viaduct_client: Box<dyn Requester + 'static> =
             Box::new(crate::client::net::ViaductClient);
-        let res =
-            get_latest_change_timestamp(&viaduct_client, &mock_server.url(""), "main", "crlite")
-                .await
-                .unwrap();
+        let res = get_latest_change_timestamp(
+            viaduct_client.as_ref(),
+            &mock_server.url(""),
+            "main",
+            "crlite",
+        )
+        .await
+        .unwrap();
 
         assert_eq!(res, 5678);
 
