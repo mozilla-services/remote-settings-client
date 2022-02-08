@@ -69,20 +69,21 @@ impl Verification for RingVerifier {
         for pair in certs.windows(2) {
             if let [parent, child] = pair {
                 let signature_alg = &child.signature_algorithm.algorithm;
-                let verification_alg: &dyn signature::VerificationAlgorithm =
-                    if *signature_alg == oid_registry::OID_PKCS1_SHA256WITHRSA {
-                        &signature::RSA_PKCS1_2048_8192_SHA256
-                    } else if *signature_alg == oid_registry::OID_PKCS1_SHA384WITHRSA {
-                        &signature::RSA_PKCS1_2048_8192_SHA384
-                    } else if *signature_alg == oid_registry::OID_PKCS1_SHA512WITHRSA {
-                        &signature::RSA_PKCS1_2048_8192_SHA512
-                    } else if *signature_alg == oid_registry::OID_SIG_ECDSA_WITH_SHA256 {
-                        &signature::ECDSA_P256_SHA256_ASN1
-                    } else if *signature_alg == oid_registry::OID_SIG_ECDSA_WITH_SHA384 {
-                        &signature::ECDSA_P384_SHA384_ASN1
-                    } else {
-                        return Err(SignatureError::UnsupportedSignatureAlgorithm);
-                    };
+                let verification_alg: &dyn signature::VerificationAlgorithm = if *signature_alg
+                    == x509_parser::oid_registry::OID_PKCS1_SHA256WITHRSA
+                {
+                    &signature::RSA_PKCS1_2048_8192_SHA256
+                } else if *signature_alg == x509_parser::oid_registry::OID_PKCS1_SHA384WITHRSA {
+                    &signature::RSA_PKCS1_2048_8192_SHA384
+                } else if *signature_alg == x509_parser::oid_registry::OID_PKCS1_SHA512WITHRSA {
+                    &signature::RSA_PKCS1_2048_8192_SHA512
+                } else if *signature_alg == x509_parser::oid_registry::OID_SIG_ECDSA_WITH_SHA256 {
+                    &signature::ECDSA_P256_SHA256_ASN1
+                } else if *signature_alg == x509_parser::oid_registry::OID_SIG_ECDSA_WITH_SHA384 {
+                    &signature::ECDSA_P384_SHA384_ASN1
+                } else {
+                    return Err(SignatureError::UnsupportedSignatureAlgorithm);
+                };
 
                 let parent_pk_bytes = parent.tbs_certificate.subject_pki.subject_public_key.data;
                 let child_der_bytes = child.tbs_certificate.as_ref();
