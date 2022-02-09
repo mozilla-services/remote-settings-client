@@ -1,16 +1,110 @@
-version: 2
+version: 2.1
 
 jobs:
+  lint:
+    docker:
+      - image: mozilla/cidockerbases:rust-latest
+    steps:
+      - checkout
+      - version-info
+      - build-lib
+      - run:
+          name: rustfmt
+          command: |
+            rustup component add rustfmt
+            rustfmt --version
+            cargo fmt -- --check
+
+  clippy:
+    docker:
+      - image: mozilla/cidockerbases:rust-latest
+    steps:
+      - checkout
+      - version-info
+      - build-lib
+      - run:
+          name: Clippy
+          command: |
+            export APPSERVICES_PLATFORM_DIR="$(pwd)/libs/desktop/linux-x86-64"
+            export NSS_DIR=${APPSERVICES_PLATFORM_DIR}/nss
+            export NSS_STATIC=1
+
+            rustup component add clippy
+            cargo clippy --version
+            cargo clippy --all-targets --all-features
+            cargo hack --feature-powerset clippy --all-targets
+
+  demo:
+    docker:
+      - image: mozilla/cidockerbases:rust-latest
+    steps:
+      - checkout
+      - version-info
+      - build-lib
+      - run:
+          name: Run demo project
+          command: |
+            pushd rs-client-demo/
+            cargo run
+            popd
+
+  docs:
+    docker:
+      - image: mozilla/cidockerbases:rust-latest
+    steps:
+      - checkout
+      - version-info
+      - build-lib
+      - run:
+          name: Build documentation
+          command: |
+            export APPSERVICES_PLATFORM_DIR="$(pwd)/libs/desktop/linux-x86-64"
+            export NSS_DIR=${APPSERVICES_PLATFORM_DIR}/nss
+            export NSS_STATIC=1
+
+            cargo doc --all-features
+
   test:
     docker:
       - image: mozilla/cidockerbases:rust-latest
     steps:
       - checkout
+      - version-info
+      - build-lib
+      - run:
+          name: Run tests
+          command: |
+            export APPSERVICES_PLATFORM_DIR="$(pwd)/libs/desktop/linux-x86-64"
+            export NSS_DIR=${APPSERVICES_PLATFORM_DIR}/nss
+            export NSS_STATIC=1
+
+            cargo hack --feature-powerset test
+
+workflows:
+  version: 2
+  test:
+    jobs:
+      - lint
+      - clippy:
+          requires:
+            - lint
+      - test:
+          requires:
+            - lint
+      - docs
+      - demo
+
+commands:
+  version-info:
+    steps:
       - run:
           name: Version information
           command: |
             rustc --version; cargo --version; rustup --version;
             export RUST_VERION=$(rustc --version)
+
+  build-lib:
+    steps:
       - run:
           name: Calculate dependencies
           command: cargo generate-lockfile
@@ -57,47 +151,3 @@ jobs:
             - target/debug/deps
             - libs/
           key: v4-cargo-cache-{{ arch }}-{{ .Environment.RUST_VERSION }}-{{ checksum "Cargo.lock" }}
-      - run:
-          name: Clippy
-          command: |
-            export APPSERVICES_PLATFORM_DIR="$(pwd)/libs/desktop/linux-x86-64"
-            export NSS_DIR=${APPSERVICES_PLATFORM_DIR}/nss
-            export NSS_STATIC=1
-
-            rustup component add clippy
-            cargo clippy --version
-            cargo clippy --all-targets --all-features
-            cargo hack --feature-powerset clippy --all-targets
-      - run:
-          name: rustfmt
-          command: |
-            rustup component add rustfmt
-            rustfmt --version
-            cargo fmt -- --check
-      - run:
-          name: Run tests
-          command: |
-            export APPSERVICES_PLATFORM_DIR="$(pwd)/libs/desktop/linux-x86-64"
-            export NSS_DIR=${APPSERVICES_PLATFORM_DIR}/nss
-            export NSS_STATIC=1
-
-            cargo hack --feature-powerset test
-      - run:
-          name: Build documentation
-          command: |
-            export APPSERVICES_PLATFORM_DIR="$(pwd)/libs/desktop/linux-x86-64"
-            export NSS_DIR=${APPSERVICES_PLATFORM_DIR}/nss
-            export NSS_STATIC=1
-
-            cargo doc --all-features
-      - run:
-          name: Run demo project
-          command: |
-            pushd rs-client-demo/
-            cargo run
-            popd
-workflows:
-  version: 2
-  test:
-    jobs:
-      - test
