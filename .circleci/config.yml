@@ -90,9 +90,13 @@ workflows:
             - lint
       - test:
           requires:
-            - lint
-      - docs
-      - demo
+            - clippy
+      - docs:
+          requires:
+            - clippy
+      - demo:
+          requires:
+            - clippy
 
 commands:
   version-info:
