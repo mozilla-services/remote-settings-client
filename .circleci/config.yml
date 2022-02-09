@@ -5,8 +5,6 @@ jobs:
     docker:
       - image: mozilla/cidockerbases:rust-latest
     steps:
-      - checkout
-      - version-info
       - build-lib
       - run:
           name: rustfmt
@@ -19,8 +17,6 @@ jobs:
     docker:
       - image: mozilla/cidockerbases:rust-latest
     steps:
-      - checkout
-      - version-info
       - build-lib
       - run:
           name: Clippy
@@ -38,8 +34,6 @@ jobs:
     docker:
       - image: mozilla/cidockerbases:rust-latest
     steps:
-      - checkout
-      - version-info
       - build-lib
       - run:
           name: Run demo project
@@ -52,8 +46,6 @@ jobs:
     docker:
       - image: mozilla/cidockerbases:rust-latest
     steps:
-      - checkout
-      - version-info
       - build-lib
       - run:
           name: Build documentation
@@ -68,8 +60,6 @@ jobs:
     docker:
       - image: mozilla/cidockerbases:rust-latest
     steps:
-      - checkout
-      - version-info
       - build-lib
       - run:
           name: Run tests
@@ -99,16 +89,14 @@ workflows:
             - clippy
 
 commands:
-  version-info:
+  build-lib:
     steps:
+      - checkout
       - run:
           name: Version information
           command: |
             rustc --version; cargo --version; rustup --version;
             export RUST_VERION=$(rustc --version)
-
-  build-lib:
-    steps:
       - run:
           name: Calculate dependencies
           command: cargo generate-lockfile
