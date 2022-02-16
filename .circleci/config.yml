@@ -90,14 +90,42 @@ jobs:
             export NSS_STATIC=1
 
             cargo doc --all-features
+  demo:
+    machine:
+      image: ubuntu-2004:202111-02
+    steps:
+      - run:
+          name: Install dependencies
+          command: |
+            curl https://sh.rustup.rs | sh -s -- --no-modify-path --default-toolchain stable -y;
+      - run:
+          name: Version information
+          command: |
+            source $HOME/.cargo/env
+            rustc --version; cargo --version; rustup --version;
+            docker --version; docker-compose --version;
+      - checkout
+      - run:
+          name: Run local Remote Settings
+          command: |
+            docker run --name rs.local \
+                       --detach \
+                       -e KINTO_INI=config/testing.ini \
+                       -e KINTO_SIGNER_RESOURCES="/buckets/main-workspace/collections/product-integrity -> /buckets/main-preview/collections/product-integrity -> /buckets/main/collections/product-integrity" \
+                       -p 8888:8888 \
+                       mozilla/remote-settings && \
+            curl --retry 10 --retry-delay 1 --retry-connrefused http://0.0.0.0:8888/v1/__heartbeat__
       - run:
           name: Run demo project
           command: |
+            source $HOME/.cargo/env
             pushd rs-client-demo/
             cargo run
             popd
+
 workflows:
   version: 2
   test:
     jobs:
       - test
+      - demo
