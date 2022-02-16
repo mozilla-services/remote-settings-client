@@ -4,8 +4,9 @@
 
 use remote_settings_client::client::net::ViaductClient;
 use remote_settings_client::client::{FileStorage, RingVerifier};
-use remote_settings_client::Client;
+use remote_settings_client::{Client, Record};
 use serde::Deserialize;
+use serde_json::json;
 pub use url::{ParseError, Url};
 use viaduct::{set_backend, Request};
 pub use viaduct_reqwest::ReqwestBackend;
@@ -22,21 +23,55 @@ pub struct LatestChangeEntry {
 }
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>>{
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server_url = option_env!("SERVER_URL").unwrap_or("http://localhost:8888/v1");
+    let authorization = option_env!("AUTHORIZATION").unwrap_or("");
+    // The `product-integrity` collection is automatically created in CI because
+    // we use the `testing.ini` config which will create all signed resources on startup.
+    // See `KINTO_SIGNER_RESOURCES` in `.circleci/config.yml`.
+    let collection = option_env!("COLLECTION").unwrap_or("product-integrity");
+
     env_logger::init();
     set_backend(&ReqwestBackend).unwrap();
 
-    print!("Fetching records using RS client with default Verifier: ");
-
-    let mut client = Client::builder()
+    println!("Connect to local server {}", server_url);
+    let editor_client = Client::builder()
         .http_client(Box::new(ViaductClient))
-        .collection_name("url-classifier-skip-urls")
+        .server_url(server_url)
+        .authorization(authorization)
+        .collection_name(collection)
         .build()
         .unwrap();
 
-    let records = client.get().await?;
-    println!("Found {} records.", records.len());
+    println!("main-workspace/{}: Create a record", collection);
+    editor_client
+        .store_record(Record::new(json!({
+          "id": "my-key",
+          "foo": "bar"
+        })))
+        .await?;
 
+    println!("main-workspace/{}: Request review from peers", collection);
+    editor_client.request_review("I made changes").await?;
+
+    print!(
+        "main-workspace/{}: Fetching preview records with default `Verifier`...",
+        collection
+    );
+    let mut preview_client = Client::builder()
+        .http_client(Box::new(ViaductClient))
+        .server_url(server_url)
+        .bucket_name("main-preview")
+        .collection_name(collection)
+        .build()
+        .unwrap();
+
+    let records = preview_client.get().await?;
+    println!("{} record(s) published", records.len());
+
+    println!("\n\n");
+
+    println!("Fetch all Remote Settings collections from PROD server.");
     let url = "https://firefox.settings.services.mozilla.com/v1/buckets/monitor/collections/changes/changeset?_expected=0";
     let response =
         tokio::task::spawn_blocking(move || Request::get(Url::parse(url).unwrap()).send().unwrap())
@@ -46,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
 
     for collection in &collections.changes {
         let cid = format!("{}/{}", collection.bucket, collection.collection);
-        print!("Fetching records of {}: ", cid);
+        print!("{}: ", cid);
 
         // We use different signing chains depending on the bucket/collection.
         let signer_name = match collection.bucket.as_str() {
@@ -76,7 +111,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>>{
             .unwrap();
 
         let records = client.get().await?;
-        println!("Found {} records for {}.", records.len(), cid);
+        println!("Found {} records", records.len());
     }
 
     Ok(())
