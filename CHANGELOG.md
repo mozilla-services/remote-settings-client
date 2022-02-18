@@ -1,8 +1,7 @@
 # Change Log
 
-## unreleased (unreleased)
+## 1.1.0 (2022-02-18)
 
-**Bug fixes**
 **New features**
 - Add support for write methods (#172)
 
