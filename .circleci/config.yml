@@ -3,7 +3,7 @@ version: 2
 jobs:
   test:
     docker:
-      - image: mozilla/cidockerbases:rust-latest
+      - image: rust:1
     steps:
       - checkout
       - run:
@@ -63,6 +63,7 @@ jobs:
             export APPSERVICES_PLATFORM_DIR="$(pwd)/libs/desktop/linux-x86-64"
             export NSS_DIR=${APPSERVICES_PLATFORM_DIR}/nss
             export NSS_STATIC=1
+            cargo install cargo-hack
 
             rustup component add clippy
             cargo clippy --version
@@ -80,6 +81,7 @@ jobs:
             export APPSERVICES_PLATFORM_DIR="$(pwd)/libs/desktop/linux-x86-64"
             export NSS_DIR=${APPSERVICES_PLATFORM_DIR}/nss
             export NSS_STATIC=1
+            cargo install cargo-hack
 
             cargo hack --feature-powerset test
       - run:
