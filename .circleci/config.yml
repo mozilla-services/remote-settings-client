@@ -3,7 +3,7 @@ version: 2
 jobs:
   test:
     docker:
-      - image: mozilla/cidockerbases:rust-latest
+      - image: rust:1
     steps:
       - checkout
       - run:
