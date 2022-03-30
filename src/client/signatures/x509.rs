@@ -12,7 +12,7 @@ pub enum X509Error {
     #[error("PEM content could not be parsed: {0}")]
     PEMError(#[from] x509_errors::PEMError),
     #[error("X509 content could not be parsed: {0}")]
-    X509Error(#[from] NomErr<x509_errors::X509Error>),
+    ParseError(#[from] NomErr<x509_errors::X509Error>),
     #[error("PEM is not a certificate: {0}")]
     WrongPEMType(String),
     #[error("no certificate was found in PEM")]
