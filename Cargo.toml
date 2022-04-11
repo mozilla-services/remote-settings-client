@@ -45,7 +45,7 @@ tokio = { version = "1.8.2", features = ["rt"], optional = true }
 
 # ring_verifier
 ring = { version = "0.16", optional = true }
-oid-registry = { version = "0.4.0", optional = true }
+oid-registry = { version = "0.5.0", optional = true }
 x509-parser = "0.13.0"
 
 # rc_crypto verifier
