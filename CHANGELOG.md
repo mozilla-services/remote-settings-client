@@ -6,7 +6,7 @@
 - Add support for write methods (#172)
 
 **Internal Changes**
-- Bump rc_crypto from v87.1.0 to v91.1.0 (#171, #185, #197)
+- Bump rc_crypto from v87.1.0 to v93.2.0 (#171, #185, #197)
 
 ## 1.0.1 (2021-12-14)
 
