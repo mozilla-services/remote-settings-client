@@ -58,7 +58,10 @@ impl Verification for RingVerifier {
 
         // 3. Verify that each certificate of the chain is currently valid (no revocation support)
         // TODO: take clock skew into account
-        let now = ASN1Time::from_timestamp(epoch_seconds as i64);
+        let now = match ASN1Time::from_timestamp(epoch_seconds as i64) {
+            Ok(t) => t,
+            Err(_) => return Err(SignatureError::CertificateExpired),
+        };
         for cert in &certs {
             if !cert.tbs_certificate.validity.is_valid_at(now) {
                 return Err(SignatureError::CertificateExpired);
@@ -85,14 +88,14 @@ impl Verification for RingVerifier {
                     return Err(SignatureError::UnsupportedSignatureAlgorithm);
                 };
 
-                let parent_pk_bytes = parent.tbs_certificate.subject_pki.subject_public_key.data;
+                let parent_pk_bytes = &parent.tbs_certificate.subject_pki.subject_public_key.data;
                 let child_der_bytes = child.tbs_certificate.as_ref();
-                let child_sig_bytes = child.signature_value.data;
+                let child_sig_bytes = &child.signature_value.data;
 
                 let public_key =
                     signature::UnparsedPublicKey::new(verification_alg, &parent_pk_bytes);
                 public_key
-                    .verify(child_der_bytes, child_sig_bytes)
+                    .verify(child_der_bytes, &child_sig_bytes)
                     .or(Err(SignatureError::CertificateTrustError))?;
             }
         }
@@ -112,7 +115,7 @@ impl Verification for RingVerifier {
             return Err(SignatureError::InvalidCertificateSubject(leaf_subject));
         }
         // 6. Use the chain's end-entity (leaf) certificate to verify that the "signature" property matches the contents of the data.
-        let public_key_bytes = leaf_cert
+        let public_key_bytes = &leaf_cert
             .tbs_certificate
             .subject_pki
             .subject_public_key
