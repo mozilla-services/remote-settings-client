@@ -113,7 +113,7 @@ pub async fn get_changeset(
     expected: u64,
     since: Option<u64>,
 ) -> Result<ChangesetResponse> {
-    let since_param = since.map_or_else(String::new, |v| format!("&_since={}", v));
+    let since_param = since.map_or_else(String::new, |v| format!(r#"&_since="{}""#, v));
     let url = format!(
         "{}/buckets/{}/collections/{}/changeset?_expected={}{}",
         server, bid, cid, expected, since_param
