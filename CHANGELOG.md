@@ -1,5 +1,17 @@
 # Change Log
 
+## 1.1.1 (2022-07-15)
+
+**Bug fixes**
+- Fix: quote the `_since` parameter
+
+**Internal Changes**
+- Bump application-services from v91.1.0 to v93.6.0 (#246, #250)
+- Update x509-parser requirement from 0.13.0 to 0.14.0 (#199, #249)
+- Update oid-registry requirement from 0.4.0 to 0.6.0 (#209, #233)
+- Switch CI to official Rust image (#207)
+- Update derive_builder requirement from 0.10 to 0.11 (#200)
+
 ## 1.1.0 (2022-02-18)
 
 **New features**
