@@ -1510,7 +1510,7 @@ mod tests {
 
         let mut get_changeset_mock_2 = mock_server.mock(|when, then| {
             when.path("/buckets/main/collections/onecrl/changeset")
-                .query_param("_since", "15")
+                .query_param("_since", r#""15""#)
                 .query_param("_expected", "42");
             then.body(
                 r#"{
