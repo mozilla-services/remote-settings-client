@@ -8,7 +8,7 @@ A Rust Remote Settings Client to fetch collection data.
 - Robust -->
 
 Consumers can define their own HTTP implementation by implementing the `net::Requester` trait.
-This library provides an implementation of the the `net::ViaductClient` HTTP requester based on on Mozilla's [viaduct](https://github.com/mozilla/application-services/tree/v93.6.0/components/viaduct) for its pluggable HTTP backend (eg. `reqwest` or `FFI` on Android).
+This library provides an implementation of the the `net::ViaductClient` HTTP requester based on on Mozilla's [viaduct](https://github.com/mozilla/application-services/tree/v94.3.1/components/viaduct) for its pluggable HTTP backend (eg. `reqwest` or `FFI` on Android).
 
 ## Quick start
 
