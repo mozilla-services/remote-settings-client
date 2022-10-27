@@ -42,7 +42,7 @@ impl Verification for RingVerifier {
         };
 
         // 2. Verify that root hash matches the SHA256 fingerprint of the root certificate (DER content)
-        let root_hash_bytes = hex::decode(&root_hash.replace(":", ""))
+        let root_hash_bytes = hex::decode(&root_hash.replace(':', ""))
             .map_err(|err| SignatureError::RootHashFormatError(err.to_string()))?;
 
         let root_pem = pems.first().unwrap();
