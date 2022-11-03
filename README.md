@@ -2,13 +2,22 @@
 
 A Rust Remote Settings Client to fetch collection data.
 
-- Read-Only
-- Customizable Signature Verification
+Available features:
+
+- Synchronization of local storage via [`rkv`](https://github.com/mozilla/rkv/), memory, or filesystem
+- Signatures and cert chains verification via NSS [`rc_crypto`](https://github.com/mozilla/application-services/tree/main/components/support/rc_crypto) or [`ring`](https://lib.rs/crates/ring)+[`oid-registry`](https://lib.rs/crates/oid-registry)
+- Download of attachments
+- Write operations on records
+- Signoff operations (request review, approve, reject)
+
 <!-- - Cross-Platform
 - Robust -->
 
 Consumers can define their own HTTP implementation by implementing the `net::Requester` trait.
 This library provides an implementation of the the `net::ViaductClient` HTTP requester based on on Mozilla's [viaduct](https://github.com/mozilla/application-services/tree/v95.0.0/components/viaduct) for its pluggable HTTP backend (eg. `reqwest` or `FFI` on Android).
+
+See also the `Storage` and `Verification` traits to extend or customize the client behaviour.
+
 
 ## Quick start
 
