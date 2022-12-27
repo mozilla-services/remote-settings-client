@@ -31,7 +31,7 @@ remote-settings-client = { path = ".", features = ["viaduct_client"] }
 anyhow = "1"
 async-trait = "0.1.51"
 base64 = "0.13.0"
-canonical_json = "0.4"
+canonical_json = "0.5"
 hex = "0.4"
 log = "0.4.0"
 url = "2.1"
