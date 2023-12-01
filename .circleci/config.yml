@@ -24,21 +24,7 @@ jobs:
           name: Build NSS dependency
           command: |
             if [ ! -d "libs/" ]; then
-              # Install ninja-build locally
-              mkdir bin && pushd bin
-              wget https://github.com/ninja-build/ninja/releases/download/v1.10.2/ninja-linux.zip
-              unzip ninja-linux.zip
-              # Pretend to have TCL to make `build-all.sh` happy.
-              touch tclsh && chmod +x tclsh
-              export PATH="$(pwd):$PATH"
-              popd
-
-              apt-get update && apt-get install -y python
-
-              # Install pip locally.
-              curl https://bootstrap.pypa.io/pip/2.7/get-pip.py -o get-pip.py
-              python get-pip.py
-              pip install gyp-next
+              apt-get update && apt-get install -y tcl python3-venv libclang-dev ninja-build gyp zlib1g-dev pip
 
               # Download and compile NSS.
               mkdir libs && pushd libs
