@@ -14,7 +14,7 @@ Available features:
 - Robust -->
 
 Consumers can define their own HTTP implementation by implementing the `net::Requester` trait.
-This library provides an implementation of the the `net::ViaductClient` HTTP requester based on on Mozilla's [viaduct](https://github.com/mozilla/application-services/tree/v97.4.1/components/viaduct) for its pluggable HTTP backend (eg. `reqwest` or `FFI` on Android).
+This library provides an implementation of the the `net::ViaductClient` HTTP requester based on on Mozilla's [viaduct](https://github.com/mozilla/application-services/tree/v121.0/components/viaduct) for its pluggable HTTP backend (eg. `reqwest` or `FFI` on Android).
 
 See also the `Storage` and `Verification` traits to extend or customize the client behaviour.
 
