@@ -16,7 +16,7 @@ viaduct_client = ["viaduct", "tokio"]
 
 [dev-dependencies]
 env_logger = "0.10.0"
-httpmock = "0.6.2"
+httpmock = "0.7.0"
 viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v121.0"}
 mock_instant = "0.2.1"
 tokio = { version = "1.8.2", features = ["macros"] }
