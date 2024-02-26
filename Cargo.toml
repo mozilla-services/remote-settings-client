@@ -15,7 +15,7 @@ rc_crypto_verifier = ["rc_crypto"]
 viaduct_client = ["viaduct", "tokio"]
 
 [dev-dependencies]
-env_logger = "0.10.0"
+env_logger = "0.11.2"
 httpmock = "0.6.2"
 viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v121.0"}
 mock_instant = "0.3.2"
