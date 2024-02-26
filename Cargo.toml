@@ -44,7 +44,7 @@ thiserror = "1.0"
 tokio = { version = "1.8.2", features = ["rt"], optional = true }
 
 # ring_verifier
-ring = { version = "0.16", optional = true }
+ring = { version = "0.17", optional = true }
 oid-registry = { version = "0.7.0", optional = true }
 x509-parser = "0.14.0"
 
