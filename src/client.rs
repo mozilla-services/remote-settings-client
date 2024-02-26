@@ -272,7 +272,7 @@ pub struct Collection {
 ///
 /// ### `rc_crypto`
 ///
-/// With the `rc_crypto` feature, a signature verifier leveraging the [`rc_crypto` crate](https://github.com/mozilla/application-services/tree/v97.4.1/components/support/rc_crypto).
+/// With the `rc_crypto` feature, a signature verifier leveraging the [`rc_crypto` crate](https://github.com/mozilla/application-services/tree/v121.0/components/support/rc_crypto).
 /// ```rust
 /// # #[cfg(feature = "rc_crypto_verifier")] {
 /// # use remote_settings_client::Client;
