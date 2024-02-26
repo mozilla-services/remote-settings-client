@@ -63,7 +63,7 @@ mod tests {
 -----BEGIN ENCRYPTED PRIVATE KEY-----
 bGxhIEFNTyBQcm9kdWN0aW9uIFNpZ25pbmcgU2VydmljZTFFMEMGA1UEAww8Q29u
 -----END ENCRYPTED PRIVATE KEY-----",
-                "PEM is not a certificate: ENCRYPTED",
+                "PEM is not a certificate: ENCRYPTED PRIVATE KEY",
             ),
             (
                 "\
