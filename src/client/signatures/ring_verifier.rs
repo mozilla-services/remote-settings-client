@@ -4,6 +4,7 @@
 
 use super::{x509, SignatureError, Verification};
 use async_trait::async_trait;
+use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 use hex;
 use ring::digest::{Context, SHA256};
 use ring::signature;
@@ -123,7 +124,7 @@ impl Verification for RingVerifier {
         let signature_alg = &signature::ECDSA_P384_SHA384_FIXED;
         let public_key = signature::UnparsedPublicKey::new(signature_alg, &public_key_bytes);
 
-        let decoded_signature = match base64::decode_config(&signature, base64::URL_SAFE) {
+        let decoded_signature = match URL_SAFE.decode(&signature) {
             Ok(s) => s,
             Err(err) => return Err(SignatureError::BadSignatureContent(err.to_string())),
         };
