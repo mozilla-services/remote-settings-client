@@ -26,50 +26,55 @@ pub struct LatestChangeEntry {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_url = option_env!("SERVER_URL").unwrap_or("http://localhost:8888/v1");
     let authorization = option_env!("AUTHORIZATION").unwrap_or("");
-    // The `product-integrity` collection is automatically created in CI because
-    // we use the `testing.ini` config which will create all signed resources on startup.
-    // See `KINTO_SIGNER_RESOURCES` in `.circleci/config.yml`.
-    let collection = option_env!("COLLECTION").unwrap_or("product-integrity");
 
     env_logger::init();
     set_backend(&ReqwestBackend).unwrap();
 
-    println!("Connect to local server {}", server_url);
-    let editor_client = Client::builder()
-        .http_client(Box::new(ViaductClient))
-        .server_url(server_url)
-        .authorization(authorization)
-        .collection_name(collection)
-        .build()
-        .unwrap();
+    if authorization.is_empty() {
+        println!("⚠️  No AUTHORIZATION env var defined, skipping write operations.\n");
+    } else {
+        // The `product-integrity` collection is automatically created in CI because
+        // we use the `testing.ini` config which will create all signed resources on startup.
+        // See `KINTO_SIGNER_RESOURCES` in `.circleci/config.yml`.
+        let collection = option_env!("COLLECTION").unwrap_or("product-integrity");
 
-    println!("main-workspace/{}: Create a record", collection);
-    editor_client
-        .store_record(Record::new(json!({
-          "id": "my-key",
-          "foo": "bar"
-        })))
-        .await?;
+        println!("Connect to local server {}", server_url);
+        let editor_client = Client::builder()
+            .http_client(Box::new(ViaductClient))
+            .server_url(server_url)
+            .authorization(authorization)
+            .collection_name(collection)
+            .build()
+            .unwrap();
 
-    println!("main-workspace/{}: Request review from peers", collection);
-    editor_client.request_review("I made changes").await?;
+        println!("main-workspace/{}: Create a record", collection);
+        editor_client
+            .store_record(Record::new(json!({
+            "id": "my-key",
+            "foo": "bar"
+            })))
+            .await?;
 
-    print!(
-        "main-workspace/{}: Fetching preview records with default `Verifier`...",
-        collection
-    );
-    let mut preview_client = Client::builder()
-        .http_client(Box::new(ViaductClient))
-        .server_url(server_url)
-        .bucket_name("main-preview")
-        .collection_name(collection)
-        .build()
-        .unwrap();
+        println!("main-workspace/{}: Request review from peers", collection);
+        editor_client.request_review("I made changes").await?;
 
-    let records = preview_client.get().await?;
-    println!("{} record(s) published", records.len());
+        print!(
+            "main-workspace/{}: Fetching preview records with default `Verifier`...",
+            collection
+        );
+        let mut preview_client = Client::builder()
+            .http_client(Box::new(ViaductClient))
+            .server_url(server_url)
+            .bucket_name("main-preview")
+            .collection_name(collection)
+            .build()
+            .unwrap();
 
-    println!("\n\n");
+        let records = preview_client.get().await?;
+        println!("{} record(s) published", records.len());
+
+        println!("\n\n");
+    }
 
     println!("Fetch all Remote Settings collections from DEV server.");
     let server_url = "https://remote-settings-dev.allizom.org/v1";
