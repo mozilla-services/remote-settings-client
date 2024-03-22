@@ -110,8 +110,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // We use different signing chains depending on the bucket/collection.
         let signer_name = match collection.bucket.as_str() {
-            "pinning" => "pinning-preload",
-            "pinning-preview" => "pinning-preload",
             "security-state" => "onecrl",
             "security-state-preview" => "onecrl",
             "blocklists" => match collection.collection.as_str() {
