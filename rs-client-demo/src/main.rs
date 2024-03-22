@@ -71,14 +71,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n\n");
 
-    println!("Fetch all Remote Settings collections from PROD server.");
-    let url = "https://firefox.settings.services.mozilla.com/v1/buckets/monitor/collections/changes/changeset?_expected=0";
-    let response =
-        tokio::task::spawn_blocking(move || Request::get(Url::parse(url).unwrap()).send().unwrap())
-            .await
-            .unwrap();
+    println!("Fetch all Remote Settings collections from DEV server.");
+    let server_url = "https://remote-settings-dev.allizom.org/v1";
+    let poll_url = format!(
+        "{}/buckets/monitor/collections/changes/changeset?_expected=0",
+        server_url
+    );
+    let response = tokio::task::spawn_blocking(move || {
+        Request::get(Url::parse(&poll_url).unwrap()).send().unwrap()
+    })
+    .await
+    .unwrap();
     let collections: KintoPluralResponse<LatestChangeEntry> = response.json().unwrap();
-
     for collection in &collections.changes {
         let cid = format!("{}/{}", collection.bucket, collection.collection);
         print!("{}: ", cid);
@@ -98,10 +102,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let temp_dir = std::env::temp_dir();
         let mut client = Client::builder()
+            .server_url(server_url)
             .http_client(Box::new(ViaductClient))
             .bucket_name(&collection.bucket)
             .collection_name(&collection.collection)
-            .signer_name(format!("{}.content-signature.mozilla.org", signer_name))
+            .cert_root_hash("45:C3:7F:3A:09:A6:D7:0E:0F:A3:21:FB:29:75:3B:A7:99:8F:12:59:B3:27:72:76:8F:23:CC:DC:24:83:67:98".to_owned())
+            .signer_name(format!("cas_cur_{}.content-signature.mozilla.org", signer_name))
             .storage(Box::new(FileStorage {
                 folder: temp_dir,
                 ..FileStorage::default()
@@ -110,8 +116,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build()
             .unwrap();
 
-        let records = client.get().await?;
-        println!("Found {} records", records.len());
+        match client.get().await {
+            Ok(records) => println!("{} records ✅.", records.len()),
+            Err(err) => println!("{} ❌", err),
+        }
     }
 
     Ok(())
