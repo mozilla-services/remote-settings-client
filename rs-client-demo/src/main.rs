@@ -22,7 +22,7 @@ pub struct LatestChangeEntry {
     pub collection: String,
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_url = option_env!("SERVER_URL").unwrap_or("http://localhost:8888/v1");
     let authorization = option_env!("AUTHORIZATION").unwrap_or("");
