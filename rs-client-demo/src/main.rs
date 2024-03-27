@@ -86,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let root_hash = match env_name.as_str() {
         "dev" => "45:C3:7F:3A:09:A6:D7:0E:0F:A3:21:FB:29:75:3B:A7:99:8F:12:59:B3:27:72:76:8F:23:CC:DC:24:83:67:98",
-        "stage" => "3C:01:44:6A:BE:90:36:CE:A9:A0:9A:CA:A3:A5:20:AC:62:8F:20:A7:AE:32:CE:86:1C:B2:EF:B7:0F:A0:C7:45",
+        "stage" => "45:C3:7F:3A:09:A6:D7:0E:0F:A3:21:FB:29:75:3B:A7:99:8F:12:59:B3:27:72:76:8F:23:CC:DC:24:83:67:98",
         _ => PROD_CERT_ROOT_HASH,
     };
 
