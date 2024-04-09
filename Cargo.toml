@@ -17,7 +17,7 @@ viaduct_client = ["viaduct", "tokio"]
 [dev-dependencies]
 env_logger = "0.11.2"
 httpmock = "0.7.0"
-viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v124.0"}
+viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v125.0.1"}
 mock_instant = "0.4.0"
 tokio = { version = "1.8.2", features = ["macros"] }
 # The following line is a workaround suggested on the rust-lang/cargo issue 2911
