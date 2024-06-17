@@ -18,7 +18,7 @@ use std::{
 use url::Url;
 
 #[cfg(test)]
-use mock_instant::Instant;
+use mock_instant::global::Instant;
 
 #[cfg(not(test))]
 use std::time::Instant;
@@ -1633,7 +1633,7 @@ mod tests {
 
         client.sync(777).await.unwrap();
         let second_sync = client.sync(888).await.unwrap_err();
-        mock_instant::MockClock::advance(Duration::from_secs(600));
+        mock_instant::global::MockClock::advance(Duration::from_secs(600));
         client.sync(888).await.unwrap();
 
         assert!(matches!(second_sync, ClientError::BackoffError(_)));

@@ -37,7 +37,7 @@ use mock_instant;
 
 #[cfg(test)]
 fn epoch_seconds() -> u64 {
-    mock_instant::MockClock::time().as_secs()
+    mock_instant::global::MockClock::time().as_secs()
 }
 
 /// A trait for signature verification of collection data.
@@ -214,7 +214,7 @@ mod tests {
     use crate::{Collection, Record, SignatureError, Verification};
     use env_logger;
     use httpmock::MockServer;
-    use mock_instant::MockClock;
+    use mock_instant::global::MockClock;
     use serde_json::json;
     use std::time::Duration;
 
