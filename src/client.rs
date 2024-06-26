@@ -303,21 +303,20 @@ pub struct Collection {
 ///
 /// ```no_run
 /// # use remote_settings_client::Client;
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let mut client = Client::builder()
 ///   .collection_name("cid")
 ///   .build()
 ///   .unwrap();
 ///
 /// // Attachment operations store cache data on records, so they need mutable references.
-/// let mut records = client.get().await?;
+/// let mut records = client.get()?;
 /// if let Some(attachment_metadata) = records[0].attachment_metadata()? {
 ///     println!("The attachment should be {} bytes long", attachment_metadata.size);
 /// }
 ///
 /// // The type returned can be anything that implement `From<Vec<u8>>`.
-/// if let Some(attachment_body) = client.fetch_attachment::<Vec<u8>, _>(&mut records[0]).await? {
+/// if let Some(attachment_body) = client.fetch_attachment::<Vec<u8>, _>(&mut records[0])? {
 ///     println!("Downloaded attachment with size {} bytes", attachment_body.len());
 /// }
 ///
@@ -334,8 +333,7 @@ pub struct Collection {
 /// ```no_run
 /// # use remote_settings_client::{Client, Record};
 /// # use serde_json::json;
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let client = Client::builder()
 ///   .authorization("Bearer abcdefghijkl")
 ///   .collection_name("cid")
@@ -346,10 +344,10 @@ pub struct Collection {
 ///   .store_record(Record::new(json!({
 ///     "id": "my-key",
 ///     "foo": "bar"
-///   }))).await?;
+///   })))?;
 ///
 /// // Request review from peers.
-/// client.request_review("I made changes").await?;
+/// client.request_review("I made changes")?;
 ///
 /// // Approve changes (publish).
 /// let peer_reviewer = Client::builder()
@@ -358,7 +356,7 @@ pub struct Collection {
 ///   .build()
 ///   .unwrap();
 ///
-/// peer_reviewer.approve_changes().await?;
+/// peer_reviewer.approve_changes()?;
 ///
 /// # Ok(())
 /// # }
@@ -428,14 +426,13 @@ impl Client {
     ///
     /// # Examples
     /// ```rust
-    /// # use remote_settings_client::{Client, client::net::ViaductClient};
+    /// # use remote_settings_client::Client;
     /// # use viaduct::set_backend;
-    /// # use viaduct_reqwest::ReqwestBackend;
-    /// # #[tokio::main]
-    /// # async fn main() {
+    /// # pub use viaduct_reqwest::ReqwestBackend;
+    /// # fn main() {
     /// # set_backend(&ReqwestBackend).unwrap();
-    /// # let mut client = Client::builder().http_client(Box::new(ViaductClient)).collection_name("url-classifier-skip-urls").build().unwrap();
-    /// match client.get().await {
+    /// # let mut client = Client::builder().collection_name("url-classifier-skip-urls").build().unwrap();
+    /// match client.get() {
     ///   Ok(records) => println!("{:?}", records),
     ///   Err(error) => println!("Error fetching/verifying records: {:?}", error)
     /// };
@@ -455,7 +452,7 @@ impl Client {
     ///
     /// # Errors
     /// If an error occurs while fetching or verifying records, a [`ClientError`] is returned.
-    pub async fn get(&mut self) -> Result<Vec<Record>, ClientError> {
+    pub fn get(&mut self) -> Result<Vec<Record>, ClientError> {
         let storage_key = self._storage_key();
 
         debug!("Retrieve from storage with key={:?}", storage_key);
@@ -470,9 +467,11 @@ impl Client {
                 // Verify signature of stored data (*optional*)
                 if !self.trust_local {
                     debug!("Verify signature of local data.");
-                    self.verifier
-                        .verify(self.http_client.as_ref(), &stored, &self.cert_root_hash)
-                        .await?;
+                    self.verifier.verify(
+                        self.http_client.as_ref(),
+                        &stored,
+                        &self.cert_root_hash,
+                    )?;
                 }
 
                 Ok(stored.records)
@@ -480,7 +479,7 @@ impl Client {
             // If storage is empty, go on with sync() (*optional*)
             Err(StorageError::KeyNotFound { .. }) if self.sync_if_empty => {
                 debug!("Synchronize data, without knowning which timestamp to expect.");
-                let collection = self.sync(None).await?;
+                let collection = self.sync(None)?;
                 Ok(collection.records)
             }
             // Otherwise, surface the error.
@@ -496,7 +495,7 @@ impl Client {
     ///
     /// # Errors
     /// If an error occurs while fetching or verifying records, a [`ClientError`] is returned.
-    pub async fn sync<T>(&mut self, expected: T) -> Result<Collection, ClientError>
+    pub fn sync<T>(&mut self, expected: T) -> Result<Collection, ClientError>
     where
         T: Into<Option<u64>>,
     {
@@ -513,12 +512,11 @@ impl Client {
             None => {
                 debug!("Obtain current timestamp.");
                 get_latest_change_timestamp(
-                    self.http_client.as_ref(),
+                    &self.http_client,
                     &self.server_url,
                     &self.bucket_name,
                     &self.collection_name,
-                )
-                .await?
+                )?
             }
         };
 
@@ -528,7 +526,6 @@ impl Client {
                 && self
                     .verifier
                     .verify(self.http_client.as_ref(), collection, &self.cert_root_hash)
-                    .await
                     .is_ok()
             {
                 debug!("Local data is up-to-date and valid.");
@@ -543,14 +540,13 @@ impl Client {
         };
 
         let changeset = get_changeset(
-            self.http_client.as_ref(),
+            &self.http_client,
             &self.server_url,
             &self.bucket_name,
             &self.collection_name,
             remote_timestamp,
             local_timestamp,
-        )
-        .await?;
+        )?;
 
         // Keep in state that the server indicated the client
         // to backoff for a while.
@@ -576,8 +572,7 @@ impl Client {
 
         debug!("Verify signature after merge of changes with previous local data.");
         self.verifier
-            .verify(self.http_client.as_ref(), &collection, &self.cert_root_hash)
-            .await?;
+            .verify(self.http_client.as_ref(), &collection, &self.cert_root_hash)?;
 
         debug!("Store collection with key={:?}", storage_key);
         let collection_bytes: Vec<u8> = serde_json::to_string(&collection)
@@ -601,7 +596,7 @@ impl Client {
         Ok(())
     }
 
-    pub async fn server_info(&mut self) -> Result<&Value, ClientError> {
+    pub fn server_info(&mut self) -> Result<&Value, ClientError> {
         if let Some(ref server_info) = self.server_info {
             Ok(server_info)
         } else {
@@ -611,7 +606,6 @@ impl Client {
             let response = self
                 .http_client
                 .get(info_url)
-                .await
                 .map_err(|_err| ClientError::APIError(KintoError::HTTPBackendError()))?;
 
             if response.is_success() {
@@ -642,10 +636,7 @@ impl Client {
     ///   problem while downloading it. This should be considered a temporary
     ///   error.
     /// * Ok(None) - There is no attachment for the record
-    pub async fn fetch_attachment<T, E>(
-        &mut self,
-        record: &mut Record,
-    ) -> Result<Option<T>, ClientError>
+    pub fn fetch_attachment<T, E>(&mut self, record: &mut Record) -> Result<Option<T>, ClientError>
     where
         T: TryFrom<Vec<u8>, Error = E>,
         E: 'static + Send + Sync + std::error::Error,
@@ -665,7 +656,7 @@ impl Client {
             Err(StorageError::KeyNotFound { .. }) => {
                 // Download the attachment
                 let url = {
-                    let server_info = self.server_info().await?;
+                    let server_info = self.server_info()?;
                     match &server_info["capabilities"]["attachments"]["base_url"] {
                         Value::String(s) => {
                             let full_url = format!("{}{}", s, metadata.location);
@@ -688,7 +679,6 @@ impl Client {
                 let response = self
                     .http_client
                     .get(url.clone())
-                    .await
                     .map_err(|_| ClientError::APIError(KintoError::HTTPBackendError()))?;
 
                 if response.is_success() {
@@ -722,7 +712,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `record` - the record to store.
-    pub async fn store_record(&self, record: Record) -> Result<KintoObject, ClientError> {
+    pub fn store_record(&self, record: Record) -> Result<KintoObject, ClientError> {
         put_record(
             self.http_client.as_ref(),
             &self.server_url,
@@ -732,7 +722,6 @@ impl Client {
             record.id(),
             &record.value,
         )
-        .await
         .map_err(ClientError::APIError)
     }
 
@@ -741,7 +730,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `id` - the record id to delete.
-    pub async fn delete_record(&self, id: &str) -> Result<KintoObject, ClientError> {
+    pub fn delete_record(&self, id: &str) -> Result<KintoObject, ClientError> {
         delete_record(
             self.http_client.as_ref(),
             &self.server_url,
@@ -750,7 +739,6 @@ impl Client {
             &self.collection_name,
             id,
         )
-        .await
         .map_err(ClientError::APIError)
     }
 
@@ -759,7 +747,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `message` - the editor message.
-    pub async fn request_review(&self, message: &str) -> Result<KintoObject, ClientError> {
+    pub fn request_review(&self, message: &str) -> Result<KintoObject, ClientError> {
         patch_collection(
             self.http_client.as_ref(),
             &self.server_url,
@@ -771,7 +759,6 @@ impl Client {
                 "last_editor_comment": message,
             }),
         )
-        .await
         .map_err(ClientError::APIError)
     }
 
@@ -780,7 +767,7 @@ impl Client {
     /// # Arguments
     ///
     /// * `message` - the editor message.
-    pub async fn reject_review(&self, message: &str) -> Result<KintoObject, ClientError> {
+    pub fn reject_review(&self, message: &str) -> Result<KintoObject, ClientError> {
         patch_collection(
             self.http_client.as_ref(),
             &self.server_url,
@@ -792,12 +779,11 @@ impl Client {
                 "last_editor_comment": message,
             }),
         )
-        .await
         .map_err(ClientError::APIError)
     }
 
     /// Approve and publish changes.
-    pub async fn approve_changes(&self) -> Result<KintoObject, ClientError> {
+    pub fn approve_changes(&self) -> Result<KintoObject, ClientError> {
         patch_collection(
             self.http_client.as_ref(),
             &self.server_url,
@@ -808,12 +794,11 @@ impl Client {
                 "status": "to-sign",
             }),
         )
-        .await
         .map_err(ClientError::APIError)
     }
 
     /// Rollback pending changes.
-    pub async fn rollback_changes(&self) -> Result<KintoObject, ClientError> {
+    pub fn rollback_changes(&self) -> Result<KintoObject, ClientError> {
         patch_collection(
             self.http_client.as_ref(),
             &self.server_url,
@@ -824,7 +809,6 @@ impl Client {
                 "status": "to-rollback",
             }),
         )
-        .await
         .map_err(ClientError::APIError)
     }
 }
@@ -856,7 +840,6 @@ mod tests {
         Client, ClientError, Collection, DummyStorage, DummyVerifier, MemoryStorage, Record,
     };
     use crate::client::AttachmentMetadata;
-    use async_trait::async_trait;
     use env_logger;
     use httpmock::MockServer;
     use serde_json::json;
@@ -876,7 +859,6 @@ mod tests {
 
     struct VerifierWithInvalidSignatureError {}
 
-    #[async_trait]
     impl Verification for VerifierWithInvalidSignatureError {
         fn verify_nist384p_chain(
             &self,
@@ -890,7 +872,7 @@ mod tests {
             unreachable!()
         }
 
-        async fn verify(
+        fn verify(
             &self,
             _requester: &'_ (dyn Requester + 'static),
             _collection: &Collection,
@@ -912,7 +894,6 @@ mod tests {
 
     struct VerifierWithInvalidHashError {}
 
-    #[async_trait]
     impl Verification for VerifierWithInvalidHashError {
         fn verify_nist384p_chain(
             &self,
@@ -926,7 +907,7 @@ mod tests {
             unreachable!()
         }
 
-        async fn verify(
+        fn verify(
             &self,
             _requester: &'_ (dyn Requester + 'static),
             _collection: &Collection,
@@ -977,8 +958,8 @@ mod tests {
         assert_eq!(format!("{:?}", client), "Client { server_url: \"https://firefox.settings.services.mozilla.com/v1\", bucket_name: \"main\", collection_name: \"cid\", signer_name: \"remote-settings.content-signature.mozilla.org\", verifier: Box<dyn Verification>, storage: Box<dyn Storage>, sync_if_empty: true, trust_local: true, backoff_until: None, cert_root_hash: \"97:E8:BA:9C:F1:2F:B3:DE:53:CC:42:A4:E6:57:7E:D6:4D:F4:93:C2:47:B4:14:FE:A0:36:81:8D:38:23:56:0E\", http_client: DummyClient, server_info: None, authorization: None }");
     }
 
-    #[tokio::test]
-    async fn test_get_works_with_dummy_storage() {
+    #[test]
+    fn test_get_works_with_dummy_storage() {
         init();
 
         let mock_server = MockServer::start();
@@ -1024,7 +1005,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let records = client.get().await.unwrap();
+        let records = client.get().unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
 
@@ -1032,7 +1013,7 @@ mod tests {
         get_latest_change_mock.assert_hits(1);
 
         // Calling again will pull from network.
-        let records_twice = client.get().await.unwrap();
+        let records_twice = client.get().unwrap();
         assert_eq!(records_twice.len(), 1);
 
         get_changeset_mock.assert_hits(2);
@@ -1042,8 +1023,8 @@ mod tests {
         get_latest_change_mock.delete();
     }
 
-    #[tokio::test]
-    async fn test_get_with_empty_storage() {
+    #[test]
+    fn test_get_with_empty_storage() {
         init();
 
         let mock_server = MockServer::start();
@@ -1089,7 +1070,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let records = client.get().await.unwrap();
+        let records = client.get().unwrap();
         assert_eq!(records.len(), 1);
         assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
 
@@ -1097,7 +1078,7 @@ mod tests {
         get_latest_change_mock.assert();
 
         // Calling again won't pull from network.
-        let records_twice = client.get().await.unwrap();
+        let records_twice = client.get().unwrap();
         assert_eq!(records_twice.len(), 1);
 
         get_changeset_mock.assert_hits(1);
@@ -1107,8 +1088,8 @@ mod tests {
         get_latest_change_mock.delete();
     }
 
-    #[tokio::test]
-    async fn test_get_empty_storage_no_sync_if_empty() {
+    #[test]
+    fn test_get_empty_storage_no_sync_if_empty() {
         init();
         let mock_server = MockServer::start();
 
@@ -1121,15 +1102,15 @@ mod tests {
             .build()
             .unwrap();
 
-        let err = client.get().await.unwrap_err();
+        let err = client.get().unwrap_err();
         assert_eq!(
             err.to_string(),
             "storage I/O error: key could not be found: main/url-classifier-skip-urls:collection"
         );
     }
 
-    #[tokio::test]
-    async fn test_get_bad_stored_data() {
+    #[test]
+    fn test_get_bad_stored_data() {
         init();
         let mock_server = MockServer::start();
 
@@ -1147,12 +1128,12 @@ mod tests {
             .store("main/cfr:collection", b"abc".to_vec())
             .unwrap();
 
-        let err = client.get().await.unwrap_err();
+        let err = client.get().unwrap_err();
         assert_eq!(err.to_string(), "storage I/O error: cannot read from storage: cannot deserialize collection: expected value at line 1 column 1");
     }
 
-    #[tokio::test]
-    async fn test_get_bad_stored_data_if_untrusted() {
+    #[test]
+    fn test_get_bad_stored_data_if_untrusted() {
         init();
         let mock_server = MockServer::start();
 
@@ -1181,15 +1162,15 @@ mod tests {
             .store("main/search-config:collection", collection_bytes)
             .unwrap();
 
-        let err = client.get().await.unwrap_err();
+        let err = client.get().unwrap_err();
         assert_eq!(
             err.to_string(),
             "content signature could not be verified: signature mismatch: fake invalid signature"
         );
     }
 
-    #[tokio::test]
-    async fn test_get_with_empty_records_list() {
+    #[test]
+    fn test_get_with_empty_records_list() {
         init();
 
         let mock_server = MockServer::start();
@@ -1213,16 +1194,16 @@ mod tests {
             .build()
             .unwrap();
 
-        client.sync(42).await.unwrap();
+        client.sync(42).unwrap();
 
-        assert_eq!(client.get().await.unwrap().len(), 0);
+        assert_eq!(client.get().unwrap().len(), 0);
 
         get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
 
-    #[tokio::test]
-    async fn test_get_return_previously_synced_records() {
+    #[test]
+    fn test_get_return_previously_synced_records() {
         init();
 
         let mock_server = MockServer::start();
@@ -1250,9 +1231,9 @@ mod tests {
             .build()
             .unwrap();
 
-        client.sync(123).await.unwrap();
+        client.sync(123).unwrap();
 
-        let records = client.get().await.unwrap();
+        let records = client.get().unwrap();
 
         assert_eq!(records.len(), 1);
         assert_eq!(records[0]["foo"].as_str().unwrap(), "bar");
@@ -1261,8 +1242,8 @@ mod tests {
         get_changeset_mock.delete();
     }
 
-    #[tokio::test]
-    async fn test_sync_pulls_current_timestamp_from_changes_endpoint_if_none() {
+    #[test]
+    fn test_sync_pulls_current_timestamp_from_changes_endpoint_if_none() {
         init();
 
         let mock_server = MockServer::start();
@@ -1305,7 +1286,7 @@ mod tests {
             .build()
             .unwrap();
 
-        client.sync(None).await.unwrap();
+        client.sync(None).unwrap();
 
         get_changeset_mock.assert();
         get_latest_change_mock.assert();
@@ -1313,8 +1294,8 @@ mod tests {
         get_latest_change_mock.delete();
     }
 
-    #[tokio::test]
-    async fn test_sync_uses_specified_expected_parameter() {
+    #[test]
+    fn test_sync_uses_specified_expected_parameter() {
         init();
 
         let mock_server = MockServer::start();
@@ -1341,14 +1322,14 @@ mod tests {
             .build()
             .unwrap();
 
-        client.sync(13).await.unwrap();
+        client.sync(13).unwrap();
 
         get_changeset_mock.assert();
         get_changeset_mock.delete();
     }
 
-    #[tokio::test]
-    async fn test_sync_fails_with_unknown_collection() {
+    #[test]
+    fn test_sync_fails_with_unknown_collection() {
         init();
 
         let mock_server = MockServer::start();
@@ -1375,7 +1356,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let err = client.sync(None).await.unwrap_err();
+        let err = client.sync(None).unwrap_err();
         assert_eq!(
             err.to_string(),
             "API failure: unknown collection: main/url-classifier-skip-urls",
@@ -1385,9 +1366,9 @@ mod tests {
         get_latest_change_mock.delete();
     }
 
-    #[tokio::test]
+    #[test]
     #[cfg(feature = "ring_verifier")]
-    async fn test_sync_uses_x5u_from_metadata_to_verify_signatures() {
+    fn test_sync_uses_x5u_from_metadata_to_verify_signatures() {
         init();
 
         let mock_server = MockServer::start();
@@ -1417,7 +1398,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let err = client.sync(42).await.unwrap_err();
+        let err = client.sync(42).unwrap_err();
 
         assert_eq!(
             err.to_string(),
@@ -1428,8 +1409,8 @@ mod tests {
         get_changeset_mock.delete();
     }
 
-    #[tokio::test]
-    async fn test_sync_wraps_signature_errors() {
+    #[test]
+    fn test_sync_wraps_signature_errors() {
         init();
 
         let mock_server = MockServer::start();
@@ -1457,7 +1438,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let err = client.sync(42).await.unwrap_err();
+        let err = client.sync(42).unwrap_err();
         assert_eq!(
             err.to_string(),
             "content signature could not be verified: signature mismatch: fake invalid signature"
@@ -1467,8 +1448,8 @@ mod tests {
         get_changeset_mock.delete();
     }
 
-    #[tokio::test]
-    async fn test_sync_returns_collection_with_merged_changes() {
+    #[test]
+    fn test_sync_returns_collection_with_merged_changes() {
         init();
 
         let mock_server = MockServer::start();
@@ -1502,7 +1483,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let res = client.sync(15).await.unwrap();
+        let res = client.sync(15).unwrap();
         assert_eq!(res.records.len(), 3);
 
         get_changeset_mock_1.assert();
@@ -1532,7 +1513,7 @@ mod tests {
             );
         });
 
-        let res = client.sync(42).await.unwrap();
+        let res = client.sync(42).unwrap();
         assert_eq!(res.records.len(), 4);
 
         let record_1_idx = res
@@ -1586,8 +1567,8 @@ mod tests {
         assert!(!r.deleted());
     }
 
-    #[tokio::test]
-    async fn test_backoff() {
+    #[test]
+    fn test_backoff() {
         init();
 
         let mut response_headers = Headers::new();
@@ -1631,16 +1612,16 @@ mod tests {
             .build()
             .unwrap();
 
-        client.sync(777).await.unwrap();
-        let second_sync = client.sync(888).await.unwrap_err();
+        client.sync(777).unwrap();
+        let second_sync = client.sync(888).unwrap_err();
         mock_instant::global::MockClock::advance(Duration::from_secs(600));
-        client.sync(888).await.unwrap();
+        client.sync(888).unwrap();
 
         assert!(matches!(second_sync, ClientError::BackoffError(_)));
     }
 
-    #[tokio::test]
-    async fn test_attachment() {
+    #[test]
+    fn test_attachment() {
         init();
 
         let fake_server = "https://www.example.com/v1";
@@ -1793,7 +1774,7 @@ mod tests {
 
         let mut client = client_builder.build().unwrap();
 
-        let mut records = client.get().await.unwrap();
+        let mut records = client.get().unwrap();
 
         let attachment_metadata = records[0].attachment_metadata().unwrap();
         assert_eq!(
@@ -1808,13 +1789,12 @@ mod tests {
             })
         );
 
-        let attachment_body: Option<Vec<u8>> =
-            client.fetch_attachment(&mut records[0]).await.unwrap();
+        let attachment_body: Option<Vec<u8>> = client.fetch_attachment(&mut records[0]).unwrap();
         assert_eq!(attachment_body, Some("test\n".as_bytes().to_vec()));
     }
 
-    #[tokio::test]
-    async fn test_no_attachment() {
+    #[test]
+    fn test_no_attachment() {
         init();
 
         let fake_server = "https://www.example.com/v1";
@@ -1894,18 +1874,17 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut records = client.get().await.unwrap();
+        let mut records = client.get().unwrap();
 
         let attachment_metadata = records[0].attachment_metadata().unwrap();
         assert_eq!(attachment_metadata, None);
 
-        let attachment_body: Option<Vec<u8>> =
-            client.fetch_attachment(&mut records[0]).await.unwrap();
+        let attachment_body: Option<Vec<u8>> = client.fetch_attachment(&mut records[0]).unwrap();
         assert_eq!(attachment_body, None);
     }
 
-    #[tokio::test]
-    async fn test_attachment_bad_hash() {
+    #[test]
+    fn test_attachment_bad_hash() {
         init();
 
         let fake_server = "https://www.example.com/v1";
@@ -1999,16 +1978,16 @@ mod tests {
             .build()
             .unwrap();
 
-        let mut records = client.get().await.unwrap();
-        let attachment_body = client.fetch_attachment::<Vec<u8>, _>(&mut records[0]).await;
+        let mut records = client.get().unwrap();
+        let attachment_body = client.fetch_attachment::<Vec<u8>, _>(&mut records[0]);
         assert!(matches!(
             attachment_body,
             Err(ClientError::IntegrityError(_))
         ));
     }
 
-    #[tokio::test]
-    async fn test_request_review() {
+    #[test]
+    fn test_request_review() {
         init();
 
         let mock_server = MockServer::start();
@@ -2038,7 +2017,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let res = client.request_review("Made changes").await.unwrap();
+        let res = client.request_review("Made changes").unwrap();
         assert_eq!(res["status"], "to-review");
 
         patch_collection_mock.assert();

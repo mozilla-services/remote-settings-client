@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::{x509, SignatureError, Verification};
-use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 use hex;
 use ring::digest::{Context, SHA256};
@@ -14,7 +13,6 @@ pub struct RingVerifier {}
 
 impl RingVerifier {}
 
-#[async_trait]
 impl Verification for RingVerifier {
     fn verify_nist384p_chain(
         &self,

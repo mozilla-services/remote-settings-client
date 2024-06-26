@@ -24,8 +24,7 @@ pub struct LatestChangeEntry {
     pub collection: String,
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let server_url = option_env!("SERVER_URL").unwrap_or("http://localhost:8888/v1");
     let authorization = option_env!("AUTHORIZATION").unwrap_or("");
     let env_name = option_env!("ENV").unwrap_or("prod").to_lowercase();
@@ -55,11 +54,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .store_record(Record::new(json!({
             "id": "my-key",
             "foo": "bar"
-            })))
-            .await?;
+            })))?;
 
         println!("main-workspace/{}: Request review from peers", collection);
-        editor_client.request_review("I made changes").await?;
+        editor_client.request_review("I made changes")?;
 
         print!(
             "main-workspace/{}: Fetching preview records with default `Verifier`...",
@@ -73,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build()
             .unwrap();
 
-        let records = preview_client.get().await?;
+        let records = preview_client.get()?;
         println!("{} record(s) published", records.len());
     }
 
@@ -98,11 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "{}/buckets/monitor/collections/changes/changeset?_expected=0",
         server_url
     );
-    let response = tokio::task::spawn_blocking(move || {
-        Request::get(Url::parse(&poll_url).unwrap()).send().unwrap()
-    })
-    .await
-    .unwrap();
+    let response = Request::get(Url::parse(&poll_url).unwrap()).send().unwrap();
     let collections: KintoPluralResponse<LatestChangeEntry> = response.json().unwrap();
     for collection in &collections.changes {
         let cid = format!("{}/{}", collection.bucket, collection.collection);
@@ -128,14 +122,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .cert_root_hash(root_hash.to_owned())
             .signer_name(format!("{}.content-signature.mozilla.org", signer_name))
             .storage(Box::new(FileStorage {
-                folder: temp_dir,
+                folder: temp_dir.into(),
                 ..FileStorage::default()
             }))
             .verifier(Box::new(RingVerifier {}))
             .build()
             .unwrap();
 
-        match client.get().await {
+        match client.get() {
             Ok(records) => println!("{} records ✅.", records.len()),
             Err(err) => println!("{} ❌", err),
         }

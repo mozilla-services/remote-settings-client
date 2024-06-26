@@ -4,8 +4,6 @@
 
 use std::collections::HashMap;
 
-use async_trait::async_trait;
-
 mod dummy_client;
 #[cfg(test)]
 mod test_client;
@@ -65,14 +63,13 @@ impl Response {
 }
 
 /// A description of a component used to perform an HTTP request.
-#[async_trait]
 pub trait Requester: std::fmt::Debug + Send + Sync {
     /// Perform an GET request toward the needed resource.
     ///
     /// # Arguments
     ///
     /// * `url` - the URL path to perform the HTTP GET on.
-    async fn get(&self, url: Url) -> Result<Response, ()>;
+    fn get(&self, url: Url) -> Result<Response, ()>;
 
     /// Perform a JSON request toward the needed resource.
     ///
@@ -82,7 +79,7 @@ pub trait Requester: std::fmt::Debug + Send + Sync {
     /// * `url` - the URL path to perform the request.
     /// * `data` - the body content to send.
     /// * `headers` - the headers to send.
-    async fn request_json(
+    fn request_json(
         &self,
         method: Method,
         url: Url,
