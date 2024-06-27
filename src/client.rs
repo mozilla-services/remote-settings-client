@@ -72,8 +72,9 @@ pub struct Record {
     attachment: Attachment,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Default, Debug, PartialEq)]
 pub enum Attachment {
+    #[default]
     Pending,
     None,
     Some(AttachmentMetadata),
@@ -86,12 +87,6 @@ pub struct AttachmentMetadata {
     pub filename: String,
     pub location: String,
     pub mimetype: String,
-}
-
-impl Default for Attachment {
-    fn default() -> Self {
-        Attachment::Pending
-    }
 }
 
 impl<'a> From<&'a Attachment> for Option<&'a AttachmentMetadata> {
@@ -829,7 +824,7 @@ fn merge_changes(local_records: Vec<Record>, remote_changes: Vec<KintoObject>) -
         }
     }
 
-    local_by_id.into_iter().map(|(_, v)| v).collect()
+    local_by_id.into_values().collect()
 }
 
 #[cfg(test)]
@@ -997,7 +992,7 @@ mod tests {
         });
 
         let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
+            .server_url(mock_server.url(""))
             .http_client(Box::new(ViaductClient))
             .collection_name("top-sites")
             .storage(Box::new(DummyStorage {}))
@@ -1062,7 +1057,7 @@ mod tests {
         });
 
         let mut client = Client::builder()
-            .server_url(&mock_server.url(""))
+            .server_url(mock_server.url(""))
             .http_client(Box::new(ViaductClient))
             .collection_name("pocket")
             .storage(Box::new(MemoryStorage::new()))
