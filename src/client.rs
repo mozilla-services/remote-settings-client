@@ -512,7 +512,7 @@ impl Client {
             None => {
                 debug!("Obtain current timestamp.");
                 get_latest_change_timestamp(
-                    &self.http_client,
+                    self.http_client.as_ref(),
                     &self.server_url,
                     &self.bucket_name,
                     &self.collection_name,
@@ -540,7 +540,7 @@ impl Client {
         };
 
         let changeset = get_changeset(
-            &self.http_client,
+            self.http_client.as_ref(),
             &self.server_url,
             &self.bucket_name,
             &self.collection_name,

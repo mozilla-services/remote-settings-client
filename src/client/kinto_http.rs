@@ -77,7 +77,7 @@ impl std::fmt::Display for ErrorResponse {
 }
 
 pub fn get_latest_change_timestamp(
-    requester: &Box<dyn Requester + 'static>,
+    requester: &(dyn Requester + 'static),
     server: &str,
     bid: &str,
     cid: &str,
@@ -106,7 +106,7 @@ pub fn get_latest_change_timestamp(
 
 /// Fetches the collection content from the server.
 pub fn get_changeset(
-    requester: &Box<dyn Requester + 'static>,
+    requester: &(dyn Requester + 'static),
     server: &str,
     bid: &str,
     cid: &str,
@@ -118,7 +118,7 @@ pub fn get_changeset(
         "{}/buckets/{}/collections/{}/changeset?_expected={}{}",
         server, bid, cid, expected, since_param
     );
-    let response = _request_resource(requester.as_ref(), None, Method::GET, url, vec![])?;
+    let response = _request_resource(requester, None, Method::GET, url, vec![])?;
     let mut changeset: ChangesetResponse = serde_json::from_slice(&response.body)?;
 
     // Check if server is indicating to clients to back-off.
@@ -339,7 +339,7 @@ mod tests {
             }]));
 
         let res = get_latest_change_timestamp(
-            &test_client,
+            test_client.as_ref(),
             "https://example.com/v1",
             "main",
             "url-classifier-skip-urls",
@@ -357,9 +357,13 @@ mod tests {
         let viaduct_client: Box<dyn Requester + 'static> =
             Box::new(crate::client::net::ViaductClient);
 
-        let err =
-            get_latest_change_timestamp(&viaduct_client, "%^", "main", "url-classifier-skip-urls")
-                .unwrap_err();
+        let err = get_latest_change_timestamp(
+            viaduct_client.as_ref(),
+            "%^",
+            "main",
+            "url-classifier-skip-urls",
+        )
+        .unwrap_err();
         assert_eq!(
             err.to_string(),
             "bad URL format: relative URL without a base"
@@ -386,7 +390,7 @@ mod tests {
             }]));
 
         let err = get_latest_change_timestamp(
-            &test_client,
+            test_client.as_ref(),
             "https://example.com",
             "main",
             "url-classifier-skip-urls",
@@ -425,7 +429,7 @@ mod tests {
             }]));
 
         let err = get_latest_change_timestamp(
-            &test_client,
+            test_client.as_ref(),
             "https://example.com/v1",
             "main",
             "url-classifier-skip-urls",
@@ -470,7 +474,7 @@ mod tests {
             }]));
 
         let err = get_changeset(
-            &test_client,
+            test_client.as_ref(),
             "https://example.com/v1",
             "main",
             "cfr",
@@ -518,7 +522,7 @@ mod tests {
             }]));
 
         let err = get_changeset(
-            &test_client,
+            test_client.as_ref(),
             "https://example.com/v1",
             "main",
             "cfr",
@@ -579,9 +583,13 @@ mod tests {
         let _ = viaduct::set_backend(&viaduct_reqwest::ReqwestBackend);
         let viaduct_client: Box<dyn Requester + 'static> =
             Box::new(crate::client::net::ViaductClient);
-        let res =
-            get_latest_change_timestamp(&viaduct_client, &mock_server.url(""), "main", "crlite")
-                .unwrap();
+        let res = get_latest_change_timestamp(
+            viaduct_client.as_ref(),
+            &mock_server.url(""),
+            "main",
+            "crlite",
+        )
+        .unwrap();
 
         assert_eq!(res, 5678);
 
