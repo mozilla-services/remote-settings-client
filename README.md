@@ -13,11 +13,9 @@ Available features:
 <!-- - Cross-Platform
 - Robust -->
 
-Consumers can define their own HTTP implementation by implementing the `net::Requester` trait.
-This library provides an implementation of the the `net::ViaductClient` HTTP requester based on on Mozilla's [viaduct](https://github.com/mozilla/application-services/tree/v128.0/components/viaduct) for its pluggable HTTP backend (eg. `reqwest` or `FFI` on Android).
+Relies on Mozilla's [viaduct](https://github.com/mozilla/application-services/tree/v75.0.0/components/viaduct) for its pluggable HTTP backend (eg. `reqwest` or `FFI` on Android).
 
 See also the `Storage` and `Verification` traits to extend or customize the client behaviour.
-
 
 ## Quick start
 
@@ -25,25 +23,26 @@ See also the `Storage` and `Verification` traits to extend or customize the clie
 
 ```toml
 [dependencies]
-remote-settings-client = { version = "0.1", features = ["ring_verifier", "viaduct_client"] }
-tokio = { version = "1.8.2", features = ["macros"] }
+remote-settings-client = { version = "0.1", features = ["ring_verifier"] }
+viaduct = { git = "https://github.com/mozilla/application-services", rev = "v75.2.0"}
+viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v75.2.0"}
 ```
 
 Minimal example:
 
 ```rust
-use remote_settings_client::{Client, client::net::ViaductClient};
+use remote_settings_client::Client;
+pub use viaduct::set_backend;
+pub use viaduct_reqwest::ReqwestBackend;
 
-#[tokio::main]
-async fn main() {
-  viaduct::set_backend(&viaduct_reqwest::ReqwestBackend).unwrap();
+fn main() {
+  set_backend(&ReqwestBackend).unwrap();
 
   let client = Client::builder()
     .collection_name("search-config")
-    .http_client(Box::new(ViaductClient))
     .build();
 
-  match client.get().await {
+  match client.get() {
     Ok(records) => println!("{:?}", records),
     Err(error) => println!("Error fetching/verifying records: {:?}", error),
   };

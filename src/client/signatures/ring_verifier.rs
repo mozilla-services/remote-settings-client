@@ -3,7 +3,6 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 use super::{x509, SignatureError, Verification};
-use async_trait::async_trait;
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 use hex;
 use ring::digest::{Context, SHA256};
@@ -14,7 +13,6 @@ pub struct RingVerifier {}
 
 impl RingVerifier {}
 
-#[async_trait]
 impl Verification for RingVerifier {
     fn verify_nist384p_chain(
         &self,
@@ -43,7 +41,7 @@ impl Verification for RingVerifier {
         };
 
         // 2. Verify that root hash matches the SHA256 fingerprint of the root certificate (DER content)
-        let root_hash_bytes = hex::decode(&root_hash.replace(':', ""))
+        let root_hash_bytes = hex::decode(root_hash.replace(':', ""))
             .map_err(|err| SignatureError::RootHashFormatError(err.to_string()))?;
 
         let root_pem = pems.first().unwrap();
@@ -96,7 +94,7 @@ impl Verification for RingVerifier {
                 let public_key =
                     signature::UnparsedPublicKey::new(verification_alg, &parent_pk_bytes);
                 public_key
-                    .verify(child_der_bytes, &child_sig_bytes)
+                    .verify(child_der_bytes, child_sig_bytes)
                     .or(Err(SignatureError::CertificateTrustError))?;
             }
         }
@@ -124,7 +122,7 @@ impl Verification for RingVerifier {
         let signature_alg = &signature::ECDSA_P384_SHA384_FIXED;
         let public_key = signature::UnparsedPublicKey::new(signature_alg, &public_key_bytes);
 
-        let decoded_signature = match URL_SAFE.decode(&signature) {
+        let decoded_signature = match URL_SAFE.decode(signature) {
             Ok(s) => s,
             Err(err) => return Err(SignatureError::BadSignatureContent(err.to_string())),
         };

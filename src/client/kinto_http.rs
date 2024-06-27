@@ -76,8 +76,8 @@ impl std::fmt::Display for ErrorResponse {
     }
 }
 
-pub async fn get_latest_change_timestamp(
-    requester: &'_ (dyn Requester + 'static),
+pub fn get_latest_change_timestamp(
+    requester: &(dyn Requester + 'static),
     server: &str,
     bid: &str,
     cid: &str,
@@ -85,7 +85,7 @@ pub async fn get_latest_change_timestamp(
     // When we fetch the monitor/changes endpoint manually (ie. not from a push notification)
     // we cannot know the current timestamp, and use 0 arbitrarily.
     let expected = 0;
-    let response = get_changeset(requester, server, "monitor", "changes", expected, None).await?;
+    let response = get_changeset(requester, server, "monitor", "changes", expected, None)?;
     let change = response
         .changes
         .iter()
@@ -105,8 +105,8 @@ pub async fn get_latest_change_timestamp(
 }
 
 /// Fetches the collection content from the server.
-pub async fn get_changeset(
-    requester: &'_ (dyn Requester + 'static),
+pub fn get_changeset(
+    requester: &(dyn Requester + 'static),
     server: &str,
     bid: &str,
     cid: &str,
@@ -118,7 +118,7 @@ pub async fn get_changeset(
         "{}/buckets/{}/collections/{}/changeset?_expected={}{}",
         server, bid, cid, expected, since_param
     );
-    let response = _request_resource(requester, None, Method::GET, url, vec![]).await?;
+    let response = _request_resource(requester, None, Method::GET, url, vec![])?;
     let mut changeset: ChangesetResponse = serde_json::from_slice(&response.body)?;
 
     // Check if server is indicating to clients to back-off.
@@ -127,7 +127,7 @@ pub async fn get_changeset(
     Ok(changeset)
 }
 
-pub async fn put_record<T>(
+pub fn put_record<T>(
     requester: &'_ (dyn Requester + 'static),
     server: &str,
     authorization: Option<String>,
@@ -156,13 +156,12 @@ where
         Method::PUT,
         record_url,
         json_bytes,
-    )
-    .await?;
+    )?;
     let kr: KintoResponse<KintoObject> = serde_json::from_slice(&response.body)?;
     Ok(kr.data.into())
 }
 
-pub async fn delete_record<T>(
+pub fn delete_record<T>(
     requester: &'_ (dyn Requester + 'static),
     server: &str,
     authorization: Option<String>,
@@ -179,13 +178,12 @@ where
         cid,
         rid,
     );
-    let response =
-        _request_resource(requester, authorization, Method::DELETE, record_url, vec![]).await?;
+    let response = _request_resource(requester, authorization, Method::DELETE, record_url, vec![])?;
     let kr: KintoResponse<KintoObject> = serde_json::from_slice(&response.body)?;
     Ok(kr.data.into())
 }
 
-pub async fn patch_collection<T>(
+pub fn patch_collection<T>(
     requester: &'_ (dyn Requester + 'static),
     server: &str,
     authorization: Option<String>,
@@ -208,8 +206,7 @@ where
         Method::PATCH,
         collection_url,
         json_bytes,
-    )
-    .await?;
+    )?;
     let kr: KintoResponse<KintoObject> = serde_json::from_slice(&response.body)?;
     Ok(kr.data.into())
 }
@@ -233,7 +230,7 @@ fn _workspace_url(server: &str, bid: &str) -> String {
     )
 }
 
-async fn _request_resource(
+fn _request_resource(
     requester: &'_ (dyn Requester + 'static),
     authorization: Option<String>,
     method: Method,
@@ -254,7 +251,6 @@ async fn _request_resource(
     info!("{:?} {}...", method, url);
     let response = requester
         .request_json(method, Url::parse(&url)?, data, headers)
-        .await
         .map_err(|_err| KintoError::HTTPBackendError())?;
 
     if !response.is_success() {
@@ -313,8 +309,8 @@ mod tests {
         let _ = env_logger::builder().is_test(true).try_init();
     }
 
-    #[tokio::test]
-    async fn test_fetch() {
+    #[test]
+    fn test_fetch() {
         init();
 
         let test_client: Box<dyn Requester + 'static> =
@@ -348,14 +344,13 @@ mod tests {
             "main",
             "url-classifier-skip-urls",
         )
-        .await
         .unwrap();
 
         assert_eq!(res, 9173);
     }
 
-    #[tokio::test]
-    async fn test_bad_url() {
+    #[test]
+    fn test_bad_url() {
         init();
 
         let _ = viaduct::set_backend(&viaduct_reqwest::ReqwestBackend);
@@ -368,7 +363,6 @@ mod tests {
             "main",
             "url-classifier-skip-urls",
         )
-        .await
         .unwrap_err();
         assert_eq!(
             err.to_string(),
@@ -376,8 +370,8 @@ mod tests {
         )
     }
 
-    #[tokio::test]
-    async fn test_bad_json() {
+    #[test]
+    fn test_bad_json() {
         init();
 
         let test_client: Box<dyn Requester + 'static> =
@@ -401,13 +395,12 @@ mod tests {
             "main",
             "url-classifier-skip-urls",
         )
-        .await
         .unwrap_err();
         assert_eq!(err.to_string(), "changeset content could not be parsed: control character (\\u0000-\\u001F) found while parsing a string at line 3 column 0");
     }
 
-    #[tokio::test]
-    async fn test_bad_timestamp() {
+    #[test]
+    fn test_bad_timestamp() {
         init();
 
         let test_client: Box<dyn Requester + 'static> =
@@ -441,7 +434,6 @@ mod tests {
             "main",
             "url-classifier-skip-urls",
         )
-        .await
         .unwrap_err();
 
         match err {
@@ -455,8 +447,8 @@ mod tests {
         };
     }
 
-    #[tokio::test]
-    async fn test_client_error_response() {
+    #[test]
+    fn test_client_error_response() {
         init();
 
         let test_client: Box<dyn Requester + 'static> =
@@ -489,7 +481,6 @@ mod tests {
             451,
             None,
         )
-        .await
         .unwrap_err();
 
         match err {
@@ -505,8 +496,8 @@ mod tests {
         };
     }
 
-    #[tokio::test]
-    async fn test_server_error_response() {
+    #[test]
+    fn test_server_error_response() {
         init();
 
         let mut response_headers = Headers::new();
@@ -538,7 +529,6 @@ mod tests {
             42,
             None,
         )
-        .await
         .unwrap_err();
 
         match err {
@@ -558,8 +548,8 @@ mod tests {
         };
     }
 
-    #[tokio::test]
-    async fn test_fetch_follows_redirects() {
+    #[test]
+    fn test_fetch_follows_redirects() {
         init();
 
         let mock_server = MockServer::start();
@@ -599,7 +589,6 @@ mod tests {
             "main",
             "crlite",
         )
-        .await
         .unwrap();
 
         assert_eq!(res, 5678);
@@ -611,8 +600,8 @@ mod tests {
         changeset_mock.delete();
     }
 
-    #[tokio::test]
-    async fn test_put_record() {
+    #[test]
+    fn test_put_record() {
         init();
 
         let mock_server = MockServer::start();
@@ -648,7 +637,6 @@ mod tests {
                 "field": "value"
             }),
         )
-        .await
         .unwrap();
 
         put_record_mock.assert();
@@ -658,8 +646,8 @@ mod tests {
         assert_eq!(res["field"], "value");
     }
 
-    #[tokio::test]
-    async fn test_delete_record() {
+    #[test]
+    fn test_delete_record() {
         init();
 
         let mock_server = MockServer::start();
@@ -691,7 +679,6 @@ mod tests {
             "cid",
             "xyz",
         )
-        .await
         .unwrap();
 
         delete_record_mock.assert();
@@ -701,8 +688,8 @@ mod tests {
         assert_eq!(res["deleted"], true);
     }
 
-    #[tokio::test]
-    async fn test_patch_collection() {
+    #[test]
+    fn test_patch_collection() {
         init();
 
         let mock_server = MockServer::start();
@@ -737,7 +724,6 @@ mod tests {
                 "status": "to-sign"
             }),
         )
-        .await
         .unwrap();
 
         patch_collection_mock.assert();

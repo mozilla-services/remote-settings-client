@@ -110,7 +110,7 @@ mod tests {
     }
 
     fn cleanup(file_path: &str) {
-        if remove_file(&file_path).is_err() {
+        if remove_file(file_path).is_err() {
             error!("Error removing file : {}", file_path);
         };
     }

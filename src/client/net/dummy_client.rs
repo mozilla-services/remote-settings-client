@@ -4,19 +4,16 @@
 
 use super::{Headers, Method, Requester, Response};
 
-use async_trait::async_trait;
-
 /// A dummy HTTP client implementation that always errors.
 #[derive(Debug)]
 pub struct DummyClient;
 
-#[async_trait]
 impl Requester for DummyClient {
-    async fn get(&self, _url: url::Url) -> Result<Response, ()> {
+    fn get(&self, _url: url::Url) -> Result<Response, ()> {
         Err(())
     }
 
-    async fn request_json(
+    fn request_json(
         &self,
         _method: Method,
         _url: url::Url,
