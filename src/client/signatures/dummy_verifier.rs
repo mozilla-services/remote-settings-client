@@ -4,12 +4,10 @@
 
 use super::{Collection, SignatureError, Verification};
 use crate::client::net::Requester;
-use async_trait::async_trait;
 use log::debug;
 
 pub struct DummyVerifier {}
 
-#[async_trait]
 impl Verification for DummyVerifier {
     fn verify_nist384p_chain(
         &self,
@@ -23,7 +21,7 @@ impl Verification for DummyVerifier {
         Ok(()) // unreachable.
     }
 
-    async fn verify(
+    fn verify(
         &self,
         _requester: &'_ (dyn Requester + 'static),
         _collection: &Collection,

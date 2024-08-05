@@ -4,21 +4,18 @@
 
 use super::{Headers, Method, Requester, Response};
 
-use async_trait::async_trait;
 use viaduct::{header_names, Request as ViaductRequest};
 
 /// An HTTP client that uses [Viaduct](https://github.com/mozilla/application-services/tree/main/components/viaduct).
 #[derive(Debug)]
 pub struct ViaductClient;
 
-#[async_trait]
 impl Requester for ViaductClient {
-    async fn get(&self, url: url::Url) -> Result<Response, ()> {
+    fn get(&self, url: url::Url) -> Result<Response, ()> {
         self.request_json(Method::GET, url, vec![], Headers::default())
-            .await
     }
 
-    async fn request_json(
+    fn request_json(
         &self,
         method: Method,
         url: url::Url,
@@ -42,7 +39,7 @@ impl Requester for ViaductClient {
             request = request.header(key, value.as_str()).map_err(|_| ())?;
         }
 
-        let res = tokio::task::spawn_blocking(move || match request.send() {
+        match request.send() {
             Err(e) => {
                 log::error!(
                     "ViaductClient - unable to submit {:?} request. {:?}",
@@ -65,19 +62,6 @@ impl Requester for ViaductClient {
                     headers,
                 })
             }
-        })
-        .await;
-
-        match res {
-            Err(e) => {
-                log::error!(
-                    "ViaductClient - unable to spawn a blocking task. {:?}",
-                    e.to_string()
-                );
-
-                Err(())
-            }
-            Ok(r) => r,
         }
     }
 }
