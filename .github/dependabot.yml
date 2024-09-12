@@ -6,3 +6,9 @@ updates:
     interval: daily
     timezone: UCT
   open-pull-requests-limit: 99
+  groups:
+    viaduct:
+      patterns:
+      - "viaduct*"
+    minor-patch-dependencies:
+      update-types: ["minor", "patch"]
