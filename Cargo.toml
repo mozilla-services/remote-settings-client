@@ -15,7 +15,7 @@ viaduct_client = ["viaduct"]
 [dev-dependencies]
 env_logger = "0.11.2"
 httpmock = "0.7.0"
-viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v131.0"}
+viaduct-reqwest = { git = "https://github.com/mozilla/application-services", rev = "v135.0"}
 mock_instant = "0.5.1"
 # The following line is a workaround suggested on the rust-lang/cargo issue 2911
 # https://github.com/rust-lang/cargo/issues/2911#issuecomment-749580481 to make
@@ -32,7 +32,7 @@ hex = "0.4"
 log = "0.4.0"
 url = "2.1"
 # specifying viaduct dependency from git repo since viaduct is not published yet to crates.io
-viaduct = { git = "https://github.com/mozilla/application-services", rev = "v131.0", optional = true}
+viaduct = { git = "https://github.com/mozilla/application-services", rev = "v135.0", optional = true}
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 derive_builder = "0.20"
