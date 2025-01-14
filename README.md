@@ -1,5 +1,7 @@
 # Remote Settings Client
 
+> **Warning**: This repository was archived in January 2025. The official Rust client for Remote Settings now lives at https://github.com/mozilla/application-services/tree/main/components/remote_settings
+
 A Rust Remote Settings Client to fetch collection data.
 
 Available features:
